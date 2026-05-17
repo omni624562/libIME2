@@ -47,35 +47,15 @@ static const GUID GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT =
 { 0x25504FB4, 0x7BAB, 0x4BC1, { 0x9C, 0x69, 0xCF, 0x81, 0x89, 0x0F, 0x0E, 0xF5 } };
 #endif
 
-// display attribute GUIDs
-
-// {05814A20-00B3-4B73-A3D0-2C521EFA8BE5}
-static const GUID g_inputDisplayAttributeGuid = 
-{ 0x5814a20, 0xb3, 0x4b73, { 0xa3, 0xd0, 0x2c, 0x52, 0x1e, 0xfa, 0x8b, 0xe5 } };
-
-
-// {E1270AA5-A6B1-4112-9AC7-F5E476C3BD63}
-// static const GUID g_convertedDisplayAttributeGuid = 
-// { 0xe1270aa5, 0xa6b1, 0x4112, { 0x9a, 0xc7, 0xf5, 0xe4, 0x76, 0xc3, 0xbd, 0x63 } };
-
 // refCountMutex needs to be static because it may be accessed after Release() calls the destructor.
 std::mutex ImeModule::refCountMutex_;
 
-ImeModule::ImeModule(HMODULE module, const CLSID& textServiceClsid):
+ImeModule::ImeModule(HMODULE module, const CLSID& textServiceClsid, std::vector<ComPtr<DisplayAttributeInfo>> displayAttrInfos):
     hInstance_(HINSTANCE(module)),
-    textServiceClsid_(textServiceClsid) {
+    textServiceClsid_(textServiceClsid),
+    displayAttrInfos_(std::move(displayAttrInfos)) {
 
     Window::registerClass(hInstance_);
-
-    // regiser default display attributes
-    inputAttrib_ = ComPtr<DisplayAttributeInfo>::make(g_inputDisplayAttributeGuid);
-    inputAttrib_->setTextSysColor(COLOR_WINDOWTEXT);
-    inputAttrib_->setBackgroundSysColor(COLOR_WINDOW);
-    inputAttrib_->setLineStyle(TF_LS_DOT);
-    inputAttrib_->setLineSysColor(COLOR_WINDOWTEXT);
-    displayAttrInfos_.push_back(inputAttrib_);
-    // convertedAttrib_ = new DisplayAttributeInfo(g_convertedDisplayAttributeGuid);
-    // displayAttrInfos_.push_back(convertedAttrib_);
 
     registerDisplayAttributeInfos();
 }
@@ -447,9 +427,11 @@ bool ImeModule::registerDisplayAttributeInfos() {
     // register display attributes
     ComPtr<ITfCategoryMgr> categoryMgr;
     if(::CoCreateInstance(CLSID_TF_CategoryMgr, NULL, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, (void**)&categoryMgr) == S_OK) {
-        TfGuidAtom atom;
-        categoryMgr->RegisterGUID(g_inputDisplayAttributeGuid, &atom);
-        inputAttrib_->setAtom(atom);
+        for (auto& info : displayAttrInfos_) {
+            TfGuidAtom atom;
+            categoryMgr->RegisterGUID(info->guid(), &atom);
+            info->setAtom(atom);
+        }
         // categoryMgr->RegisterGUID(g_convertedDisplayAttributeGuid, &atom);
         // convertedAttrib_->setAtom(atom);
         return true;

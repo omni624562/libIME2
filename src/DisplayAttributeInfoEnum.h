@@ -20,7 +20,7 @@
 #pragma once
 
 #include <msctf.h>
-#include <list>
+#include <vector>
 #include "DisplayAttributeInfo.h"
 #include "ComPtr.h"
 #include "ComObject.h"
@@ -43,7 +43,7 @@ protected: // COM object should not be deleted directly. calling Release() inste
     virtual ~DisplayAttributeInfoEnum(void);
 
 private:
-    std::list<ComPtr<DisplayAttributeInfo>>::iterator iterator_;
+    std::vector<ComPtr<DisplayAttributeInfo>>::const_iterator iterator_;
     ComPtr<DisplayAttributeProvider> provider_;
 };
 

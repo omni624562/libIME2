@@ -25,7 +25,7 @@
 
 #include <Ctffunc.h>
 #include <string>
-#include <list>
+#include <vector>
 #include "ComPtr.h"
 #include "ComObject.h"
 #include <mutex>
@@ -51,7 +51,8 @@ class ImeModule: public ComObject<
     ComInterface<ITfFnConfigure>
 > {
 public:
-    ImeModule(HMODULE module, const CLSID& textServiceClsid);
+    ImeModule(HMODULE module, const CLSID& textServiceClsid,
+        std::vector<ComPtr<DisplayAttributeInfo>> displayAttrInfos);
 
     // public methods
     HINSTANCE hInstance() const {
@@ -77,21 +78,15 @@ public:
     virtual bool onConfigure(HWND hwndParent, LANGID langid, REFGUID rguidProfile);
 
     // display attributes for composition string
-    std::list<ComPtr<DisplayAttributeInfo>>& displayAttrInfos() {
+    const std::vector<ComPtr<DisplayAttributeInfo>>& displayAttrInfos() const {
         return displayAttrInfos_;
     }
 
     bool registerDisplayAttributeInfos();
 
-    DisplayAttributeInfo* inputAttrib() {
-        return inputAttrib_;
+    const DisplayAttributeInfo* inputAttrib() const {
+        return displayAttrInfos_.empty() ? nullptr : static_cast<DisplayAttributeInfo*>(displayAttrInfos_.front());
     }
-
-    /*
-    DisplayAttributeInfo* convertedAttrib() {
-        return convertedAttrib_;
-    }
-    */
 
     // COM-related stuff
 
@@ -120,8 +115,7 @@ private:
     CLSID textServiceClsid_;
 
     // display attributes
-    std::list< ComPtr<DisplayAttributeInfo>> displayAttrInfos_;
-    ComPtr<DisplayAttributeInfo> inputAttrib_;
+    std::vector<ComPtr<DisplayAttributeInfo>> displayAttrInfos_;
     // DisplayAttributeInfo* convertedAttrib_;
 };
 
