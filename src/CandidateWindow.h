@@ -72,10 +72,23 @@ public:
 
     void clear();
 
+    void setHeader(std::wstring header);
+    void setModernStyle(bool enabled);
+
     int candPerRow() const {
         return candPerRow_;
     }
     void setCandPerRow(int n);
+
+    void setTheme(COLORREF panelBackground,
+                  COLORREF panelBorder,
+                  COLORREF textPrimary,
+                  COLORREF textSecondary,
+                  COLORREF highlightBackground,
+                  COLORREF highlightBorder,
+                  COLORREF highlightText);
+
+    void setSpacing(int contentMargin, int textMargin, int borderRadius);
 
     virtual void recalculateSize();
 
@@ -115,9 +128,22 @@ private:
     int selKeyWidth_;
     int textWidth_;
     int itemHeight_;
+    int headerHeight_;
+    int headerSpacing_;
     int candPerRow_;
     int colSpacing_;
     int rowSpacing_;
+    bool modernStyle_;
+    int textMargin_;
+    int borderRadius_;
+    COLORREF panelBackground_;
+    COLORREF panelBorder_;
+    COLORREF textPrimary_;
+    COLORREF textSecondary_;
+    COLORREF highlightBackground_;
+    COLORREF highlightBorder_;
+    COLORREF highlightText_;
+    std::wstring header_;
     std::vector<wchar_t> selKeys_;
     std::vector<std::wstring> items_;
     int currentSel_;

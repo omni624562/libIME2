@@ -38,10 +38,22 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     candPerRow_(1),
     textWidth_(0),
     itemHeight_(0),
+    headerHeight_(0),
+    headerSpacing_(4),
     currentSel_(0),
     hasResult_(false),
     useCursor_(true),
-    selKeyWidth_(0) {
+    selKeyWidth_(0),
+    modernStyle_(false),
+    textMargin_(6),
+    borderRadius_(8),
+    panelBackground_(RGB(255, 255, 255)),
+    panelBorder_(RGB(218, 221, 227)),
+    textPrimary_(RGB(32, 36, 42)),
+    textSecondary_(RGB(107, 114, 128)),
+    highlightBackground_(RGB(220, 235, 255)),
+    highlightBorder_(RGB(156, 199, 255)),
+    highlightText_(RGB(11, 58, 117)) {
 
     if(service->isImmersive()) { // windows 8 app mode
         margin_ = 10;
@@ -111,7 +123,7 @@ STDMETHODIMP CandidateWindow::GetDocumentMgr(ITfDocumentMgr **ppdim) {
 STDMETHODIMP CandidateWindow::GetCount(UINT *puCount) {
     if (!puCount)
         return E_INVALIDARG;
-    *puCount = std::min<UINT>(10, items_.size());
+    *puCount = static_cast<UINT>(std::min<size_t>(10, items_.size()));
     return S_OK;
 }
 
@@ -200,10 +212,21 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
     SetTextColor(hDC, GetSysColor(COLOR_WINDOWTEXT));
     SetBkColor(hDC, GetSysColor(COLOR_WINDOW));
 
-    // paint window background and border
-    // draw a flat black border in Windows 8 app immersive mode
-    // draw a 3d border in desktop mode
-    if(isImmersive()) {
+    int y = margin_;
+    if(modernStyle_) {
+        SetBkMode(hDC, TRANSPARENT);
+        ::FillSolidRect(ps.hdc, &rc, panelBackground_);
+        HPEN pen = ::CreatePen(PS_SOLID, 1, panelBorder_);
+        HBRUSH brush = ::CreateSolidBrush(panelBackground_);
+        HGDIOBJ oldPen = ::SelectObject(hDC, pen);
+        HGDIOBJ oldBrush = ::SelectObject(hDC, brush);
+        ::RoundRect(hDC, rc.left, rc.top, rc.right, rc.bottom, borderRadius_, borderRadius_);
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+        ::DeleteObject(brush);
+        ::DeleteObject(pen);
+    }
+    else if(isImmersive()) {
         HPEN pen = ::CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
         HGDIOBJ oldPen = ::SelectObject(hDC, pen);
         ::Rectangle(hDC, rc.left, rc.top, rc.right, rc.bottom);
@@ -211,15 +234,21 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         ::DeleteObject(pen);
     }
     else {
-        // draw a 3d border in desktop mode
         ::FillSolidRect(ps.hdc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, GetSysColor(COLOR_WINDOW));
         ::Draw3DBorder(hDC, &rc, GetSysColor(COLOR_3DFACE), 0);
     }
 
+    if(modernStyle_ && !header_.empty()) {
+        RECT headerRect = {margin_, y, rc.right - margin_, y + headerHeight_};
+        ::SetTextColor(hDC, textSecondary_);
+        ::DrawTextW(hDC, header_.c_str(), static_cast<int>(header_.length()), &headerRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        y += headerHeight_ + headerSpacing_;
+    }
+
     // paint items
     int col = 0;
-    int x = margin_, y = margin_;
-    for(int i = 0, n = items_.size(); i < n; ++i) {
+    int x = margin_;
+    for(int i = 0, n = static_cast<int>(items_.size()); i < n; ++i) {
         paintItem(hDC, i, x, y);
         ++col; // go to next column
         if(col >= candPerRow_) {
@@ -228,7 +257,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             y += itemHeight_ + rowSpacing_;
         }
         else {
-            x += colSpacing_ + selKeyWidth_ + textWidth_;
+            x += colSpacing_ + selKeyWidth_ + textWidth_ + (modernStyle_ ? textMargin_ * 2 : 0);
         }
     }
     SelectObject(hDC, oldFont);
@@ -236,6 +265,60 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
 }
 
 void CandidateWindow::recalculateSize() {
+    if(!modernStyle_) {
+        if(items_.empty()) {
+            resize(margin_ * 2, margin_ * 2);
+        }
+
+        HDC hDC = ::GetWindowDC(hwnd());
+        int height, width;
+        selKeyWidth_ = 0;
+        textWidth_ = 0;
+        itemHeight_ = 0;
+
+        HGDIOBJ oldFont = ::SelectObject(hDC, font_);
+        for(int i = 0, n = static_cast<int>(items_.size()); i < n; ++i) {
+            SIZE selKeySize;
+            int lineHeight = 0;
+            wchar_t selKey[] = L"?. ";
+            selKey[0] = selKeys_[i];
+            ::GetTextExtentPoint32W(hDC, selKey, 3, &selKeySize);
+            if(selKeySize.cx > selKeyWidth_)
+                selKeyWidth_ = selKeySize.cx;
+
+            SIZE candidateSize;
+            wstring& item = items_.at(i);
+            ::GetTextExtentPoint32W(hDC, item.c_str(), static_cast<int>(item.length()), &candidateSize);
+            if(candidateSize.cx > textWidth_)
+                textWidth_ = candidateSize.cx;
+            int itemHeight = max(candidateSize.cy, selKeySize.cy);
+            if(itemHeight > itemHeight_)
+                itemHeight_ = itemHeight;
+        }
+        ::SelectObject(hDC, oldFont);
+        ::ReleaseDC(hwnd(), hDC);
+
+        int itemCount = static_cast<int>(items_.size());
+        if(itemCount <= candPerRow_) {
+            width = itemCount * (selKeyWidth_ + textWidth_);
+            if(itemCount > 0)
+                width += colSpacing_ * (itemCount - 1);
+            width += margin_ * 2;
+            height = itemHeight_ + margin_ * 2;
+        }
+        else {
+            width = candPerRow_ * (selKeyWidth_ + textWidth_);
+            width += colSpacing_ * (candPerRow_ - 1);
+            width += margin_ * 2;
+            int rowCount = itemCount / candPerRow_;
+            if(itemCount % candPerRow_)
+                ++rowCount;
+            height = itemHeight_ * rowCount + rowSpacing_ * (rowCount - 1) + margin_ * 2;
+        }
+        resize(width, height);
+        return;
+    }
+
     if(items_.empty()) {
         resize(margin_ * 2, margin_ * 2);
     }
@@ -246,10 +329,18 @@ void CandidateWindow::recalculateSize() {
     selKeyWidth_ = 0;
     textWidth_ = 0;
     itemHeight_ = 0;
+    headerHeight_ = 0;
 
     HGDIOBJ oldFont = ::SelectObject(hDC, font_);
+    SIZE headerSize = {0, 0};
+    if(!header_.empty()) {
+        ::GetTextExtentPoint32W(hDC, header_.c_str(), static_cast<int>(header_.length()), &headerSize);
+        headerHeight_ = headerSize.cy;
+        width = headerSize.cx;
+    }
+
     vector<wstring>::const_iterator it;
-    for(int i = 0, n = items_.size(); i < n; ++i) {
+    for(int i = 0, n = static_cast<int>(items_.size()); i < n; ++i) {
         SIZE selKeySize;
         int lineHeight = 0;
         // the selection key string
@@ -262,39 +353,96 @@ void CandidateWindow::recalculateSize() {
         // the candidate string
         SIZE candidateSize;
         wstring& item = items_.at(i);
-        ::GetTextExtentPoint32W(hDC, item.c_str(), item.length(), &candidateSize);
+        ::GetTextExtentPoint32W(hDC, item.c_str(), static_cast<int>(item.length()), &candidateSize);
         if(candidateSize.cx > textWidth_)
             textWidth_ = candidateSize.cx;
         int itemHeight = max(candidateSize.cy, selKeySize.cy);
         if(itemHeight > itemHeight_)
             itemHeight_ = itemHeight;
     }
+    itemHeight_ += max(2, textMargin_ / 2) * 2;
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    if(items_.size() <= candPerRow_) {
-        width = items_.size() * (selKeyWidth_ + textWidth_);
-        width += colSpacing_ * (items_.size() - 1);
-        width += margin_ * 2;
-        height = itemHeight_ + margin_ * 2;
+    int candidateWidth = 0;
+    int candidateHeight = 0;
+    int itemCount = static_cast<int>(items_.size());
+    if(itemCount <= candPerRow_) {
+        candidateWidth = itemCount * (selKeyWidth_ + textWidth_ + textMargin_ * 2);
+        if(itemCount > 0)
+            candidateWidth += colSpacing_ * (itemCount - 1);
+        candidateHeight = itemHeight_;
     }
     else {
-        width = candPerRow_ * (selKeyWidth_ + textWidth_);
-        width += colSpacing_ * (candPerRow_ - 1);
-        width += margin_ * 2;
-        int rowCount = items_.size() / candPerRow_;
-        if(items_.size() % candPerRow_)
+        candidateWidth = candPerRow_ * (selKeyWidth_ + textWidth_ + textMargin_ * 2);
+        candidateWidth += colSpacing_ * (candPerRow_ - 1);
+        int rowCount = itemCount / candPerRow_;
+        if(itemCount % candPerRow_)
             ++rowCount;
-        height = itemHeight_ * rowCount + rowSpacing_ * (rowCount - 1) + margin_ * 2;
+        candidateHeight = itemHeight_ * rowCount + rowSpacing_ * (rowCount - 1);
     }
+    width = max(width, candidateWidth) + margin_ * 2;
+    height = candidateHeight;
+    if(headerHeight_ > 0)
+        height += headerHeight_ + headerSpacing_;
+    height += margin_ * 2;
     resize(width, height);
 }
 
+void CandidateWindow::setHeader(std::wstring header) {
+    if(header_ != header) {
+        header_ = header;
+        if(modernStyle_) {
+            recalculateSize();
+            refresh();
+        }
+    }
+}
+
+void CandidateWindow::setModernStyle(bool enabled) {
+    if(modernStyle_ != enabled) {
+        modernStyle_ = enabled;
+        recalculateSize();
+        refresh();
+    }
+}
+
 void CandidateWindow::setCandPerRow(int n) {
+    if(n < 1)
+        n = 1;
     if(n != candPerRow_) {
         candPerRow_ = n;
         recalculateSize();
     }
+}
+
+void CandidateWindow::setTheme(COLORREF panelBackground,
+                               COLORREF panelBorder,
+                               COLORREF textPrimary,
+                               COLORREF textSecondary,
+                               COLORREF highlightBackground,
+                               COLORREF highlightBorder,
+                               COLORREF highlightText) {
+    panelBackground_ = panelBackground;
+    panelBorder_ = panelBorder;
+    textPrimary_ = textPrimary;
+    textSecondary_ = textSecondary;
+    highlightBackground_ = highlightBackground;
+    highlightBorder_ = highlightBorder;
+    highlightText_ = highlightText;
+    if(isVisible())
+        ::InvalidateRect(hwnd_, NULL, TRUE);
+}
+
+void CandidateWindow::setSpacing(int contentMargin, int textMargin, int borderRadius) {
+    if(modernStyle_)
+        margin_ = max(0, contentMargin);
+    textMargin_ = max(0, textMargin);
+    borderRadius_ = max(0, borderRadius);
+    if(modernStyle_)
+        recalculateSize();
+    if(modernStyle_ && isVisible())
+        ::InvalidateRect(hwnd_, NULL, TRUE);
 }
 
 bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
@@ -306,7 +454,7 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
             currentSel_ -= candPerRow_;
         break;
     case VK_DOWN:
-        if(currentSel_ + candPerRow_ < items_.size())
+        if(currentSel_ + candPerRow_ < static_cast<int>(items_.size()))
             currentSel_ += candPerRow_;
         break;
     case VK_LEFT:
@@ -314,7 +462,7 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
             --currentSel_;
         break;
     case VK_RIGHT:
-        if(currentSel_ + 1 < items_.size())
+        if(currentSel_ + 1 < static_cast<int>(items_.size()))
             ++currentSel_;
         break;
     case VK_RETURN:
@@ -337,7 +485,7 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
 }
 
 void CandidateWindow::setCurrentSel(int sel) {
-    if(sel >= items_.size())
+    if(sel >= static_cast<int>(items_.size()))
         sel = 0;
     if (currentSel_ != sel) {
         currentSel_ = sel;
@@ -360,40 +508,86 @@ void CandidateWindow::setUseCursor(bool use) {
 }
 
 void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
-    RECT textRect = {x, y, 0, y + itemHeight_};
+    if(!modernStyle_) {
+        RECT textRect = {x, y, 0, y + itemHeight_};
+        wchar_t selKey[] = L"?. ";
+        selKey[0] = selKeys_[i];
+        textRect.right = textRect.left + selKeyWidth_;
+        COLORREF selKeyColor = RGB(0, 0, 255);
+        COLORREF oldColor = ::SetTextColor(hDC, selKeyColor);
+        ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, selKey, 3, NULL);
+        ::SetTextColor(hDC, oldColor);
+
+        wstring& item = items_.at(i);
+        textRect.left += selKeyWidth_;
+        textRect.right = textRect.left + textWidth_;
+        ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, item.c_str(), static_cast<UINT>(item.length()), NULL);
+
+        if(useCursor_ && i == currentSel_) {
+            int left = textRect.left;
+            int top = textRect.top;
+            int width = textRect.right - left;
+            ::BitBlt(hDC, left, top, width, itemHeight_, hDC, left, top, NOTSRCCOPY);
+        }
+        return;
+    }
+
+    RECT itemRc;
+    itemRect(i, itemRc);
+    itemRc.left = x;
+    itemRc.top = y;
+    itemRc.right = x + selKeyWidth_ + textWidth_ + textMargin_ * 2;
+    itemRc.bottom = y + itemHeight_;
+
+    if(useCursor_ && i == currentSel_) {
+        HPEN pen = ::CreatePen(PS_SOLID, 1, highlightBorder_);
+        HBRUSH brush = ::CreateSolidBrush(highlightBackground_);
+        HGDIOBJ oldPen = ::SelectObject(hDC, pen);
+        HGDIOBJ oldBrush = ::SelectObject(hDC, brush);
+        ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, borderRadius_ / 2, borderRadius_ / 2);
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+        ::DeleteObject(brush);
+        ::DeleteObject(pen);
+    }
+
+    int verticalPadding = max(2, textMargin_ / 2);
+    RECT textRect = {x + textMargin_, y + verticalPadding, 0, y + itemHeight_ - verticalPadding};
     wchar_t selKey[] = L"?. ";
     selKey[0] = selKeys_[i];
     textRect.right = textRect.left + selKeyWidth_;
-    // FIXME: make the color of strings configurable.
-    COLORREF selKeyColor = RGB(0, 0, 255);
+    COLORREF selKeyColor = (useCursor_ && i == currentSel_) ? highlightText_ : textSecondary_;
     COLORREF oldColor = ::SetTextColor(hDC, selKeyColor);
     // paint the selection key
-    ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, selKey, 3, NULL);
+    ::ExtTextOut(hDC, textRect.left, textRect.top, 0, &textRect, selKey, 3, NULL);
     ::SetTextColor(hDC, oldColor); // restore text color
 
     // paint the candidate string
     wstring& item = items_.at(i);
     textRect.left += selKeyWidth_;
     textRect.right = textRect.left + textWidth_;
+    ::SetTextColor(hDC, (useCursor_ && i == currentSel_) ? highlightText_ : textPrimary_);
     // paint the candidate string
-    ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, item.c_str(), item.length(), NULL);
-
-    if(useCursor_ && i == currentSel_) { // invert the selected item
-        int left = textRect.left; // - selKeyWidth_;
-        int top = textRect.top;
-        int width = textRect.right - left;
-        int height = itemHeight_;
-        ::BitBlt(hDC, left, top, width, itemHeight_, hDC, left, top, NOTSRCCOPY);
-    }
+    ::ExtTextOut(hDC, textRect.left, textRect.top, 0, &textRect, item.c_str(), static_cast<UINT>(item.length()), NULL);
 }
 
 void CandidateWindow::itemRect(int i, RECT& rect) {
     int row, col;
     row = i / candPerRow_;
     col = i % candPerRow_;
+    if(!modernStyle_) {
+        rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_);
+        rect.top = margin_ + row * (itemHeight_ + rowSpacing_);
+        rect.right = rect.left + (selKeyWidth_ + textWidth_);
+        rect.bottom = rect.top + itemHeight_;
+        return;
+    }
+
+    int topOffset = headerHeight_ > 0 ? headerHeight_ + headerSpacing_ : 0;
     rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_);
-    rect.top = margin_ + row * (itemHeight_ + rowSpacing_);
-    rect.right = rect.left + (selKeyWidth_ + textWidth_);
+    rect.left += col * textMargin_ * 2;
+    rect.top = margin_ + topOffset + row * (itemHeight_ + rowSpacing_);
+    rect.right = rect.left + (selKeyWidth_ + textWidth_ + textMargin_ * 2);
     rect.bottom = rect.top + itemHeight_;
 }
 
