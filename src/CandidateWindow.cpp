@@ -392,10 +392,8 @@ void CandidateWindow::recalculateSize() {
 void CandidateWindow::setHeader(std::wstring header) {
     if(header_ != header) {
         header_ = header;
-        if(modernStyle_) {
-            recalculateSize();
-            refresh();
-        }
+        recalculateSize();
+        refresh();
     }
 }
 
