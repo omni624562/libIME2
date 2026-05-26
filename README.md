@@ -18,7 +18,7 @@ libIME by introducing more modern C++ syntax and testing.
 ## How to Build
 *   Get source from github.
 
-        git clone https://github.com/EasyIME/libIME2.git
+        git clone https://github.com/omni624562/libIME2.git
 
 *   Use one of the following CMake commands to generate a Visual Studio project.
 
