@@ -58,9 +58,9 @@ public:
         return items_;
     }
 
-    void setItems(const std::vector<std::wstring>& items, const std::vector<wchar_t>& sekKeys) {
+    void setItems(const std::vector<std::wstring>& items, const std::vector<wchar_t>& selKeys) {
         items_ = items;
-        selKeys_ = selKeys_;
+        selKeys_ = selKeys;
         recalculateSize();
         refresh();
     }
@@ -100,6 +100,37 @@ public:
 
     void setUseCursor(bool use);
 
+    const std::wstring& header() const {
+        return header_;
+    }
+
+    void setHeader(const std::wstring& header) {
+        header_ = header;
+        recalculateSize();
+        refresh();
+    }
+
+    void setModernStyle(bool modern) {
+        modernStyle_ = modern;
+    }
+
+    void setTheme(COLORREF panelBg, COLORREF panelBorder, COLORREF textPrimary, COLORREF textSecondary, COLORREF highlightBg, COLORREF highlightBorder, COLORREF highlightText) {
+        panelBg_ = panelBg;
+        panelBorder_ = panelBorder;
+        textPrimary_ = textPrimary;
+        textSecondary_ = textSecondary;
+        highlightBg_ = highlightBg;
+        highlightBorder_ = highlightBorder;
+        highlightText_ = highlightText;
+    }
+
+    void setSpacing(int contentMargin, int textMargin, int borderRadius) {
+        contentMargin_ = contentMargin;
+        textMargin_ = textMargin;
+        borderRadius_ = borderRadius;
+        recalculateSize();
+    }
+
 protected:
     LRESULT wndProc(UINT msg, WPARAM wp , LPARAM lp);
     void onPaint(WPARAM wp, LPARAM lp);
@@ -123,6 +154,19 @@ private:
     int currentSel_;
     bool hasResult_;
     bool useCursor_;
+    std::wstring header_;
+
+    bool modernStyle_;
+    COLORREF panelBg_;
+    COLORREF panelBorder_;
+    COLORREF textPrimary_;
+    COLORREF textSecondary_;
+    COLORREF highlightBg_;
+    COLORREF highlightBorder_;
+    COLORREF highlightText_;
+    int contentMargin_;
+    int textMargin_;
+    int borderRadius_;
 };
 
 }
