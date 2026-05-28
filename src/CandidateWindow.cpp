@@ -321,22 +321,19 @@ void CandidateWindow::recalculateSize() {
         if(itemHeight > itemHeight_)
             itemHeight_ = itemHeight;
     }
-    ::SelectObject(hDC, oldFont);
-    ::ReleaseDC(hwnd(), hDC);
 
-    // measure header
+    // measure header (reuse the same DC)
     int headerHeight = 0;
     int headerWidth = 0;
     if (!header_.empty()) {
-        HDC hDC2 = ::GetWindowDC(hwnd());
-        HGDIOBJ oldFont2 = ::SelectObject(hDC2, font_);
         SIZE headerSize;
-        ::GetTextExtentPoint32W(hDC2, header_.c_str(), (int)header_.length(), &headerSize);
-        ::SelectObject(hDC2, oldFont2);
-        ::ReleaseDC(hwnd(), hDC2);
+        ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
         headerHeight = headerSize.cy + margin_;
         headerWidth = headerSize.cx;
     }
+
+    ::SelectObject(hDC, oldFont);
+    ::ReleaseDC(hwnd(), hDC);
 
     int extraItemPadding = modernStyle_ ? textMargin_ * 2 : 0;
 
