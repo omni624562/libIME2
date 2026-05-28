@@ -292,10 +292,6 @@ void CandidateWindow::recalculateSize() {
         colSpacing_ = textMargin_ * 2;
     }
 
-    if(items_.empty()) {
-        resize(margin_ * 2, margin_ * 2);
-    }
-
     HDC hDC = ::GetWindowDC(hwnd());
     int height = 0;
     int width = 0;
@@ -328,8 +324,9 @@ void CandidateWindow::recalculateSize() {
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    // measure header height
+    // measure header
     int headerHeight = 0;
+    int headerWidth = 0;
     if (!header_.empty()) {
         HDC hDC2 = ::GetWindowDC(hwnd());
         HGDIOBJ oldFont2 = ::SelectObject(hDC2, font_);
@@ -338,21 +335,28 @@ void CandidateWindow::recalculateSize() {
         ::SelectObject(hDC2, oldFont2);
         ::ReleaseDC(hwnd(), hDC2);
         headerHeight = headerSize.cy + margin_;
+        headerWidth = headerSize.cx;
     }
 
     int extraItemPadding = modernStyle_ ? textMargin_ * 2 : 0;
 
-    if(items_.size() <= candPerRow_) {
-        width = items_.size() * (selKeyWidth_ + textWidth_ + extraItemPadding);
-        width += colSpacing_ * (items_.size() - 1);
+    if(items_.empty()) {
+        width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
+        height = headerHeight > 0 ? headerHeight + margin_ : margin_ * 2;
+    }
+    else if(items_.size() <= candPerRow_) {
+        width = (int)items_.size() * (selKeyWidth_ + textWidth_ + extraItemPadding);
+        width += colSpacing_ * ((int)items_.size() - 1);
         width += margin_ * 2;
+        width = max(width, headerWidth + margin_ * 2);
         height = itemHeight_ + extraItemPadding + margin_ * 2 + headerHeight;
     }
     else {
         width = candPerRow_ * (selKeyWidth_ + textWidth_ + extraItemPadding);
         width += colSpacing_ * (candPerRow_ - 1);
         width += margin_ * 2;
-        int rowCount = items_.size() / candPerRow_;
+        width = max(width, headerWidth + margin_ * 2);
+        int rowCount = (int)items_.size() / candPerRow_;
         if(items_.size() % candPerRow_)
             ++rowCount;
         height = (itemHeight_ + extraItemPadding) * rowCount + rowSpacing_ * (rowCount - 1) + margin_ * 2 + headerHeight;
