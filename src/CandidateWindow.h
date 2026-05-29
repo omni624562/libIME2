@@ -157,6 +157,7 @@ public:
 
     void setStableWidth(bool stable, int minWidth);
     void resetStableWidth();
+    void setMaxWidth(bool wrapToMaxWidth, int maxWidth);
 
 protected:
     LRESULT wndProc(UINT msg, WPARAM wp , LPARAM lp);
@@ -176,6 +177,7 @@ private:
     int textWidth_;
     int itemHeight_;
     int candPerRow_;
+    int effectiveCandPerRow_;
     int colSpacing_;
     int rowSpacing_;
     std::vector<wchar_t> selKeys_;
@@ -201,6 +203,8 @@ private:
     bool stableWidth_;
     int minStableWidth_;
     int stableWidthPx_;
+    bool wrapToMaxWidth_;
+    int maxWidth_;
 };
 
 }

@@ -45,6 +45,7 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     ImeWindow(service),
     shown_(false),
     candPerRow_(1),
+    effectiveCandPerRow_(1),
     textWidth_(0),
     itemHeight_(0),
     currentSel_(0),
@@ -64,7 +65,9 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     borderRadius_(8),
     stableWidth_(false),
     minStableWidth_(0),
-    stableWidthPx_(0) {
+    stableWidthPx_(0),
+    wrapToMaxWidth_(false),
+    maxWidth_(0) {
 
     if(service->isImmersive()) { // windows 8 app mode
         margin_ = 10;
@@ -351,10 +354,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
     int x = margin_, y = margin_ + headerHeight;
     if (modernStyle_ && headerHeight > 0)
         y = headerHeight + textMargin_;
+    int columnsPerRow = max(1, effectiveCandPerRow_);
     for(int i = 0, n = items_.size(); i < n; ++i) {
         paintItem(hDC, i, x, y);
         ++col; // go to next column
-        if(col >= candPerRow_) {
+        if(col >= columnsPerRow) {
             col = 0;
             x = margin_;
             y += modernStyle_ ? modernCandidateRowHeight() + rowSpacing_ : itemHeight_ + rowSpacing_;
@@ -448,6 +452,15 @@ void CandidateWindow::recalculateSize() {
     int topPadding = modernStyle_ ? headerHeight + headerGap : margin_ + headerHeight;
     int bottomPadding = margin_;
 
+    int itemStride = selKeyWidth_ + textWidth_ + extraItemPadding;
+    int effectiveCandPerRow = max(1, candPerRow_);
+    if (modernStyle_ && wrapToMaxWidth_ && maxWidth_ > 0 && itemStride > 0 && !items_.empty()) {
+        int contentLimit = max(1, maxWidth_ - margin_ * 2);
+        int maxColumns = (contentLimit + colSpacing_) / (itemStride + colSpacing_);
+        effectiveCandPerRow = max(1, min(effectiveCandPerRow, maxColumns));
+    }
+    effectiveCandPerRow_ = effectiveCandPerRow;
+
     if (!message_.empty()) {
         int messageRowHeight = modernStyle_ ? messageHeight + textMargin_ * 2 : messageHeight;
         width = messageWidth + margin_ * 2 + (modernStyle_ ? textMargin_ * 2 : 0);
@@ -458,22 +471,21 @@ void CandidateWindow::recalculateSize() {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
         height = headerHeight > 0 ? headerHeight + bottomPadding : margin_ * 2;
     }
-    else if(items_.size() <= candPerRow_) {
-        width = (int)items_.size() * (selKeyWidth_ + textWidth_ + extraItemPadding);
-        width += colSpacing_ * ((int)items_.size() - 1);
-        width += margin_ * 2;
-        width = max(width, headerWidth + margin_ * 2);
-        height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) + bottomPadding;
-    }
     else {
-        width = candPerRow_ * (selKeyWidth_ + textWidth_ + extraItemPadding);
-        width += colSpacing_ * (candPerRow_ - 1);
+        int columnCount = min((int)items_.size(), effectiveCandPerRow_);
+        width = columnCount * itemStride;
+        width += colSpacing_ * (columnCount - 1);
         width += margin_ * 2;
         width = max(width, headerWidth + margin_ * 2);
-        int rowCount = (int)items_.size() / candPerRow_;
-        if(items_.size() % candPerRow_)
+        int rowCount = (int)items_.size() / effectiveCandPerRow_;
+        if(items_.size() % effectiveCandPerRow_)
             ++rowCount;
         height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + bottomPadding;
+    }
+    if (modernStyle_ && wrapToMaxWidth_ && maxWidth_ > 0) {
+        int maxWindowWidth = max(maxWidth_, headerWidth + margin_ * 2);
+        maxWindowWidth = max(maxWindowWidth, minStableWidth_);
+        width = min(width, maxWindowWidth);
     }
     if (modernStyle_ && stableWidth_) {
         int minWidth = max(0, minStableWidth_);
@@ -481,6 +493,11 @@ void CandidateWindow::recalculateSize() {
             stableWidthPx_ = minWidth;
         if (width > stableWidthPx_)
             stableWidthPx_ = width;
+        if (wrapToMaxWidth_ && maxWidth_ > 0) {
+            int maxWindowWidth = max(maxWidth_, headerWidth + margin_ * 2);
+            maxWindowWidth = max(maxWindowWidth, minWidth);
+            stableWidthPx_ = min(stableWidthPx_, maxWindowWidth);
+        }
         width = stableWidthPx_;
     }
     resize(width, height);
@@ -496,21 +513,23 @@ void CandidateWindow::setCandPerRow(int n) {
 bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
     // select item with arrow keys
     int oldSel = currentSel_;
+    int columnsPerRow = max(1, effectiveCandPerRow_);
+    int itemCount = (int)items_.size();
     switch(keyEvent.keyCode()) {
     case VK_UP:
-        if(currentSel_ - candPerRow_ >=0)
-            currentSel_ -= candPerRow_;
+        if(currentSel_ - columnsPerRow >=0)
+            currentSel_ -= columnsPerRow;
         break;
     case VK_DOWN:
-        if(currentSel_ + candPerRow_ < items_.size())
-            currentSel_ += candPerRow_;
+        if(currentSel_ + columnsPerRow < itemCount)
+            currentSel_ += columnsPerRow;
         break;
     case VK_LEFT:
         if(currentSel_ - 1 >=0)
             --currentSel_;
         break;
     case VK_RIGHT:
-        if(currentSel_ + 1 < items_.size())
+        if(currentSel_ + 1 < itemCount)
             ++currentSel_;
         break;
     case VK_RETURN:
@@ -533,7 +552,7 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
 }
 
 void CandidateWindow::setCurrentSel(int sel) {
-    if(sel >= items_.size())
+    if(sel >= (int)items_.size())
         sel = 0;
     if (currentSel_ != sel) {
         currentSel_ = sel;
@@ -568,6 +587,16 @@ void CandidateWindow::setStableWidth(bool stable, int minWidth) {
 
 void CandidateWindow::resetStableWidth() {
     stableWidthPx_ = 0;
+}
+
+void CandidateWindow::setMaxWidth(bool wrapToMaxWidth, int maxWidth) {
+    maxWidth = max(0, maxWidth);
+    if (wrapToMaxWidth_ != wrapToMaxWidth || maxWidth_ != maxWidth)
+        stableWidthPx_ = 0;
+    wrapToMaxWidth_ = wrapToMaxWidth;
+    maxWidth_ = maxWidth;
+    recalculateSize();
+    refresh();
 }
 
 int CandidateWindow::headerHeight(HDC hDC) const {
@@ -667,8 +696,9 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
 void CandidateWindow::itemRect(int i, RECT& rect) {
     int row, col;
-    row = i / candPerRow_;
-    col = i % candPerRow_;
+    int columnsPerRow = max(1, effectiveCandPerRow_);
+    row = i / columnsPerRow;
+    col = i % columnsPerRow;
     if (modernStyle_) {
         int extraItemPadding = textMargin_ * 3;
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
