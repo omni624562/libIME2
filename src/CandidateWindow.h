@@ -146,6 +146,8 @@ protected:
     void onPaint(WPARAM wp, LPARAM lp);
     void paintItem(HDC hDC, int i, int x, int y);
     void itemRect(int i, RECT& rect);
+    int headerHeight(HDC hDC) const;
+    int modernCandidateRowHeight() const;
 
 protected: // COM object should not be deleted directly. calling Release() instead.
     ~CandidateWindow(void);

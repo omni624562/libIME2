@@ -32,6 +32,15 @@ using namespace std;
 
 namespace Ime {
 
+static COLORREF blendColor(COLORREF a, COLORREF b, int percentB) {
+    int percentA = 100 - percentB;
+    return RGB(
+        (GetRValue(a) * percentA + GetRValue(b) * percentB) / 100,
+        (GetGValue(a) * percentA + GetGValue(b) * percentB) / 100,
+        (GetBValue(a) * percentA + GetBValue(b) * percentB) / 100
+    );
+}
+
 CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     ImeWindow(service),
     shown_(false),
@@ -247,39 +256,60 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
     }
 
     // paint header row (label text left-aligned, page info right-aligned)
-    int headerHeight = 0;
+    int headerHeight = this->headerHeight(hDC);
     if (!header_.empty() || !pageInfo_.empty()) {
-        COLORREF headerColor = modernStyle_ ? textSecondary_ : RGB(0, 0, 180);
-        COLORREF oldColor = ::SetTextColor(hDC, headerColor);
+        COLORREF headerLabelColor = modernStyle_ ? textSecondary_ : RGB(0, 0, 180);
+        COLORREF headerValueColor = modernStyle_ ? highlightText_ : RGB(0, 0, 180);
+        COLORREF oldColor = ::SetTextColor(hDC, headerLabelColor);
         if (modernStyle_) {
             ::SetBkMode(hDC, TRANSPARENT);
         }
 
-        int rowTop = margin_;
-        int rowBottom = 0;
+        int rowTop = modernStyle_ ? margin_ + textMargin_ / 2 : margin_;
+        int rowBottom = rowTop + headerHeight - (modernStyle_ ? margin_ : 0);
 
         if (!header_.empty()) {
-            SIZE headerSize;
-            ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
-            rowBottom = rowTop + headerSize.cy;
-            headerHeight = headerSize.cy + margin_;
-            RECT headerRect = { margin_, rowTop, rc.right - margin_, rowBottom };
-            ::ExtTextOut(hDC, headerRect.left, headerRect.top, ETO_OPAQUE, &headerRect,
-                header_.c_str(), (int)header_.length(), NULL);
+            std::wstring label = L"";
+            std::wstring value = header_;
+            size_t separator = header_.find(L' ');
+            if (separator != std::wstring::npos && separator + 1 < header_.length()) {
+                label = header_.substr(0, separator);
+                value = header_.substr(separator + 1);
+            }
+
+            int textX = margin_ + (modernStyle_ ? textMargin_ : 0);
+            RECT labelRect = { textX, rowTop, rc.right - margin_, rowBottom };
+            if (!label.empty()) {
+                ::SetTextColor(hDC, headerLabelColor);
+                ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+                SIZE labelSize;
+                ::GetTextExtentPoint32W(hDC, label.c_str(), (int)label.length(), &labelSize);
+                labelRect.left += labelSize.cx + textMargin_;
+            }
+
+            ::SetTextColor(hDC, headerValueColor);
+            ::DrawTextW(hDC, value.c_str(), (int)value.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         }
 
         if (!pageInfo_.empty()) {
             SIZE piSize;
             ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piSize);
-            if (rowBottom == 0) {
-                rowBottom = rowTop + piSize.cy;
-                headerHeight = piSize.cy + margin_;
-            }
             // right-aligned, vertically centered in the header row
-            int piX = rc.right - margin_ - piSize.cx;
+            int piX = rc.right - margin_ - (modernStyle_ ? textMargin_ : 0) - piSize.cx;
             RECT piRect = { piX, rowTop, rc.right - margin_, rowBottom };
-            ::ExtTextOut(hDC, piRect.left, piRect.top, 0, &piRect,
-                pageInfo_.c_str(), (int)pageInfo_.length(), NULL);
+            ::SetTextColor(hDC, headerLabelColor);
+            ::DrawTextW(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        }
+
+        if (modernStyle_) {
+            HPEN dividerPen = ::CreatePen(PS_SOLID, 1, blendColor(panelBorder_, panelBg_, 35));
+            HGDIOBJ oldPen = ::SelectObject(hDC, dividerPen);
+            int dividerY = headerHeight;
+            ::MoveToEx(hDC, 1, dividerY, NULL);
+            ::LineTo(hDC, rc.right - 1, dividerY);
+            ::SelectObject(hDC, oldPen);
+            ::DeleteObject(dividerPen);
         }
 
         if (modernStyle_) {
@@ -291,16 +321,18 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
     // paint items
     int col = 0;
     int x = margin_, y = margin_ + headerHeight;
+    if (modernStyle_ && headerHeight > 0)
+        y = headerHeight + textMargin_;
     for(int i = 0, n = items_.size(); i < n; ++i) {
         paintItem(hDC, i, x, y);
         ++col; // go to next column
         if(col >= candPerRow_) {
             col = 0;
             x = margin_;
-            y += itemHeight_ + rowSpacing_ + (modernStyle_ ? textMargin_ * 2 : 0);
+            y += modernStyle_ ? modernCandidateRowHeight() + rowSpacing_ : itemHeight_ + rowSpacing_;
         }
         else {
-            x += colSpacing_ + selKeyWidth_ + textWidth_ + (modernStyle_ ? textMargin_ * 2 : 0);
+            x += colSpacing_ + selKeyWidth_ + textWidth_ + (modernStyle_ ? textMargin_ * 4 : 0);
         }
     }
     SelectObject(hDC, oldFont);
@@ -345,7 +377,7 @@ void CandidateWindow::recalculateSize() {
     }
 
     // measure header (reuse the same DC)
-    int headerHeight = 0;
+    int headerHeight = this->headerHeight(hDC);
     int headerWidth = 0;
     int pageInfoWidth = 0;
     if (!pageInfo_.empty()) {
@@ -357,22 +389,20 @@ void CandidateWindow::recalculateSize() {
     if (!header_.empty()) {
         SIZE headerSize;
         ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
-        headerHeight = headerSize.cy + margin_;
         // header row must fit both the label text and the page-info text
-        headerWidth = headerSize.cx + (pageInfoWidth > 0 ? colSpacing_ + pageInfoWidth : 0);
+        headerWidth = headerSize.cx + (pageInfoWidth > 0 ? colSpacing_ * 2 + pageInfoWidth : 0);
     }
     else if (pageInfoWidth > 0) {
         // page info with no header: size the row to fit the page info alone
-        SIZE pageInfoSize;
-        ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &pageInfoSize);
-        headerHeight = pageInfoSize.cy + margin_;
         headerWidth = pageInfoWidth;
     }
 
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    int extraItemPadding = modernStyle_ ? textMargin_ * 2 : 0;
+    int extraItemPadding = modernStyle_ ? textMargin_ * 4 : 0;
+    int modernRowHeight = modernCandidateRowHeight();
+    int headerGap = modernStyle_ && headerHeight > 0 ? textMargin_ : 0;
 
     if(items_.empty()) {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
@@ -383,7 +413,7 @@ void CandidateWindow::recalculateSize() {
         width += colSpacing_ * ((int)items_.size() - 1);
         width += margin_ * 2;
         width = max(width, headerWidth + margin_ * 2);
-        height = itemHeight_ + extraItemPadding + margin_ * 2 + headerHeight;
+        height = (modernStyle_ ? modernRowHeight : itemHeight_) + margin_ * 2 + headerHeight + headerGap;
     }
     else {
         width = candPerRow_ * (selKeyWidth_ + textWidth_ + extraItemPadding);
@@ -393,7 +423,7 @@ void CandidateWindow::recalculateSize() {
         int rowCount = (int)items_.size() / candPerRow_;
         if(items_.size() % candPerRow_)
             ++rowCount;
-        height = (itemHeight_ + extraItemPadding) * rowCount + rowSpacing_ * (rowCount - 1) + margin_ * 2 + headerHeight;
+        height = (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + margin_ * 2 + headerHeight + headerGap;
     }
     resize(width, height);
 }
@@ -467,6 +497,27 @@ void CandidateWindow::setUseCursor(bool use) {
         ::InvalidateRect(hwnd_, NULL, TRUE);
 }
 
+int CandidateWindow::headerHeight(HDC hDC) const {
+    if (header_.empty() && pageInfo_.empty())
+        return 0;
+
+    SIZE headerSize = { 0, 0 };
+    SIZE pageInfoSize = { 0, 0 };
+    if (!header_.empty())
+        ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
+    if (!pageInfo_.empty())
+        ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &pageInfoSize);
+
+    int textHeight = max(headerSize.cy, pageInfoSize.cy);
+    if (modernStyle_)
+        return textHeight + margin_ + textMargin_;
+    return textHeight + margin_;
+}
+
+int CandidateWindow::modernCandidateRowHeight() const {
+    return itemHeight_ + textMargin_ * 4;
+}
+
 void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     if (modernStyle_) {
         RECT itemRc;
@@ -481,8 +532,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
             HGDIOBJ oldBrush = ::SelectObject(hDC, bgBrush);
             HGDIOBJ oldPen = ::SelectObject(hDC, borderPen);
 
-            // Draw a slightly smaller rounded rect for selection
-            ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, borderRadius_, borderRadius_);
+            ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, borderRadius_ * 2, borderRadius_ * 2);
 
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
@@ -493,7 +543,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         // Draw selection key
         wchar_t selKey[] = L"?. ";
         selKey[0] = selKeys_[i];
-        RECT keyRc = { itemRc.left + textMargin_, itemRc.top, itemRc.left + textMargin_ + selKeyWidth_, itemRc.bottom };
+        RECT keyRc = { itemRc.left + textMargin_ * 2, itemRc.top, itemRc.left + textMargin_ * 2 + selKeyWidth_, itemRc.bottom };
         COLORREF keyColor = isSelected ? highlightText_ : textSecondary_;
         COLORREF oldTextColor = ::SetTextColor(hDC, keyColor);
         int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
@@ -501,7 +551,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
         // Draw candidate text
         wstring& item = items_.at(i);
-        RECT textRc = { keyRc.right, itemRc.top, itemRc.right - textMargin_, itemRc.bottom };
+        RECT textRc = { keyRc.right + textMargin_, itemRc.top, itemRc.right - textMargin_ * 2, itemRc.bottom };
         COLORREF textColor = isSelected ? highlightText_ : textPrimary_;
         ::SetTextColor(hDC, textColor);
         ::DrawTextW(hDC, item.c_str(), (int)item.length(), &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -542,24 +592,24 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
     row = i / candPerRow_;
     col = i % candPerRow_;
     if (modernStyle_) {
-        int extraItemPadding = textMargin_ * 2;
+        int extraItemPadding = textMargin_ * 4;
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
 
         // measure header height
         int headerHeight = 0;
-        if (!header_.empty()) {
+        if (!header_.empty() || !pageInfo_.empty()) {
             HDC hDC = ::GetWindowDC(hwnd());
             HGDIOBJ oldFont = ::SelectObject(hDC, font_);
-            SIZE headerSize;
-            ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
+            headerHeight = this->headerHeight(hDC);
             ::SelectObject(hDC, oldFont);
             ::ReleaseDC(hwnd(), hDC);
-            headerHeight = headerSize.cy + margin_;
         }
 
-        rect.top = margin_ + headerHeight + row * (itemHeight_ + rowSpacing_ + extraItemPadding);
+        int headerGap = headerHeight > 0 ? textMargin_ : 0;
+        int rowHeight = modernCandidateRowHeight();
+        rect.top = margin_ + headerHeight + headerGap + row * (rowHeight + rowSpacing_);
         rect.right = rect.left + (selKeyWidth_ + textWidth_ + extraItemPadding);
-        rect.bottom = rect.top + itemHeight_ + extraItemPadding;
+        rect.bottom = rect.top + rowHeight;
     } else {
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_);
 
