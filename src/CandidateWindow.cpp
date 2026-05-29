@@ -246,20 +246,42 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         }
     }
 
-    // paint header if present
+    // paint header row (label text left-aligned, page info right-aligned)
     int headerHeight = 0;
-    if (!header_.empty()) {
-        SIZE headerSize;
-        ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
-        headerHeight = headerSize.cy + margin_;
-        RECT headerRect = { margin_, margin_, rc.right - margin_, margin_ + headerSize.cy };
+    if (!header_.empty() || !pageInfo_.empty()) {
         COLORREF headerColor = modernStyle_ ? textSecondary_ : RGB(0, 0, 180);
         COLORREF oldColor = ::SetTextColor(hDC, headerColor);
         if (modernStyle_) {
             ::SetBkMode(hDC, TRANSPARENT);
         }
-        ::ExtTextOut(hDC, headerRect.left, headerRect.top, ETO_OPAQUE, &headerRect,
-            header_.c_str(), (int)header_.length(), NULL);
+
+        int rowTop = margin_;
+        int rowBottom = 0;
+
+        if (!header_.empty()) {
+            SIZE headerSize;
+            ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
+            rowBottom = rowTop + headerSize.cy;
+            headerHeight = headerSize.cy + margin_;
+            RECT headerRect = { margin_, rowTop, rc.right - margin_, rowBottom };
+            ::ExtTextOut(hDC, headerRect.left, headerRect.top, ETO_OPAQUE, &headerRect,
+                header_.c_str(), (int)header_.length(), NULL);
+        }
+
+        if (!pageInfo_.empty()) {
+            SIZE piSize;
+            ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piSize);
+            if (rowBottom == 0) {
+                rowBottom = rowTop + piSize.cy;
+                headerHeight = piSize.cy + margin_;
+            }
+            // right-aligned, vertically centered in the header row
+            int piX = rc.right - margin_ - piSize.cx;
+            RECT piRect = { piX, rowTop, rc.right - margin_, rowBottom };
+            ::ExtTextOut(hDC, piRect.left, piRect.top, 0, &piRect,
+                pageInfo_.c_str(), (int)pageInfo_.length(), NULL);
+        }
+
         if (modernStyle_) {
             ::SetBkMode(hDC, OPAQUE);
         }
@@ -325,11 +347,26 @@ void CandidateWindow::recalculateSize() {
     // measure header (reuse the same DC)
     int headerHeight = 0;
     int headerWidth = 0;
+    int pageInfoWidth = 0;
+    if (!pageInfo_.empty()) {
+        SIZE pageInfoSize;
+        ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &pageInfoSize);
+        pageInfoWidth = pageInfoSize.cx;
+    }
+
     if (!header_.empty()) {
         SIZE headerSize;
         ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
         headerHeight = headerSize.cy + margin_;
-        headerWidth = headerSize.cx;
+        // header row must fit both the label text and the page-info text
+        headerWidth = headerSize.cx + (pageInfoWidth > 0 ? colSpacing_ + pageInfoWidth : 0);
+    }
+    else if (pageInfoWidth > 0) {
+        // page info with no header: size the row to fit the page info alone
+        SIZE pageInfoSize;
+        ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &pageInfoSize);
+        headerHeight = pageInfoSize.cy + margin_;
+        headerWidth = pageInfoWidth;
     }
 
     ::SelectObject(hDC, oldFont);

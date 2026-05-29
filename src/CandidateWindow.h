@@ -110,6 +110,16 @@ public:
         refresh();
     }
 
+    const std::wstring& pageInfo() const {
+        return pageInfo_;
+    }
+
+    void setPageInfo(const std::wstring& info) {
+        pageInfo_ = info;
+        recalculateSize();
+        refresh();
+    }
+
     void setModernStyle(bool modern) {
         modernStyle_ = modern;
     }
@@ -155,6 +165,7 @@ private:
     bool hasResult_;
     bool useCursor_;
     std::wstring header_;
+    std::wstring pageInfo_;
 
     bool modernStyle_;
     COLORREF panelBg_;
