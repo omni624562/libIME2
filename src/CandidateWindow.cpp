@@ -265,8 +265,14 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             ::SetBkMode(hDC, TRANSPARENT);
         }
 
-        int rowTop = modernStyle_ ? margin_ + textMargin_ / 2 : margin_;
-        int rowBottom = rowTop + headerHeight - (modernStyle_ ? margin_ : 0);
+        int rowTop = modernStyle_ ? 0 : margin_;
+        int rowBottom = modernStyle_ ? headerHeight : rowTop + headerHeight;
+        int pageInfoLeft = rc.right - margin_ - (modernStyle_ ? textMargin_ : 0);
+        if (!pageInfo_.empty()) {
+            SIZE piSize;
+            ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piSize);
+            pageInfoLeft -= piSize.cx;
+        }
 
         if (!header_.empty()) {
             std::wstring label = L"";
@@ -278,7 +284,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             }
 
             int textX = margin_ + (modernStyle_ ? textMargin_ : 0);
-            RECT labelRect = { textX, rowTop, rc.right - margin_, rowBottom };
+            RECT labelRect = { textX, rowTop, pageInfoLeft - textMargin_, rowBottom };
             if (!label.empty()) {
                 ::SetTextColor(hDC, headerLabelColor);
                 ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -296,7 +302,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             SIZE piSize;
             ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piSize);
             // right-aligned, vertically centered in the header row
-            int piX = rc.right - margin_ - (modernStyle_ ? textMargin_ : 0) - piSize.cx;
+            int piX = pageInfoLeft;
             RECT piRect = { piX, rowTop, rc.right - margin_, rowBottom };
             ::SetTextColor(hDC, headerLabelColor);
             ::DrawTextW(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -305,7 +311,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         if (modernStyle_) {
             HPEN dividerPen = ::CreatePen(PS_SOLID, 1, blendColor(panelBorder_, panelBg_, 35));
             HGDIOBJ oldPen = ::SelectObject(hDC, dividerPen);
-            int dividerY = headerHeight;
+            int dividerY = max(0, headerHeight - 1);
             ::MoveToEx(hDC, 1, dividerY, NULL);
             ::LineTo(hDC, rc.right - 1, dividerY);
             ::SelectObject(hDC, oldPen);
@@ -342,8 +348,8 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
 void CandidateWindow::recalculateSize() {
     if (modernStyle_) {
         margin_ = contentMargin_;
-        rowSpacing_ = textMargin_;
-        colSpacing_ = textMargin_ * 2;
+        rowSpacing_ = max(0, textMargin_ / 2);
+        colSpacing_ = max(8, textMargin_ * 3);
     }
 
     HDC hDC = ::GetWindowDC(hwnd());
@@ -354,6 +360,9 @@ void CandidateWindow::recalculateSize() {
     itemHeight_ = 0;
 
     HGDIOBJ oldFont = ::SelectObject(hDC, font_);
+    TEXTMETRIC textMetrics;
+    ::GetTextMetrics(hDC, &textMetrics);
+    int fontLineHeight = textMetrics.tmHeight + textMetrics.tmExternalLeading;
     vector<wstring>::const_iterator it;
     for(int i = 0, n = items_.size(); i < n; ++i) {
         SIZE selKeySize;
@@ -361,7 +370,7 @@ void CandidateWindow::recalculateSize() {
         // the selection key string
         wchar_t selKey[] = L"?. ";
         selKey[0] = selKeys_[i];
-        ::GetTextExtentPoint32W(hDC, selKey, 3, &selKeySize);
+        ::GetTextExtentPoint32W(hDC, selKey, modernStyle_ ? 1 : 3, &selKeySize);
         if(selKeySize.cx > selKeyWidth_)
             selKeyWidth_ = selKeySize.cx;
 
@@ -375,6 +384,8 @@ void CandidateWindow::recalculateSize() {
         if(itemHeight > itemHeight_)
             itemHeight_ = itemHeight;
     }
+    if (itemHeight_ < fontLineHeight)
+        itemHeight_ = fontLineHeight;
 
     // measure header (reuse the same DC)
     int headerHeight = this->headerHeight(hDC);
@@ -400,11 +411,11 @@ void CandidateWindow::recalculateSize() {
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    int extraItemPadding = modernStyle_ ? textMargin_ * 4 : 0;
+    int extraItemPadding = modernStyle_ ? textMargin_ * 3 : 0;
     int modernRowHeight = modernCandidateRowHeight();
     int headerGap = modernStyle_ && headerHeight > 0 ? textMargin_ : 0;
-    int topPadding = modernStyle_ ? margin_ + headerHeight + headerGap : margin_ + headerHeight;
-    int bottomPadding = modernStyle_ ? max(margin_, textMargin_ * 4) : margin_;
+    int topPadding = modernStyle_ ? headerHeight + headerGap : margin_ + headerHeight;
+    int bottomPadding = margin_;
 
     if(items_.empty()) {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
@@ -511,20 +522,24 @@ int CandidateWindow::headerHeight(HDC hDC) const {
         ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &pageInfoSize);
 
     int textHeight = max(headerSize.cy, pageInfoSize.cy);
-    if (modernStyle_)
-        return textHeight + margin_ + textMargin_;
+    if (modernStyle_) {
+        TEXTMETRIC textMetrics;
+        ::GetTextMetrics(hDC, &textMetrics);
+        textHeight = max(textHeight, textMetrics.tmHeight + textMetrics.tmExternalLeading);
+        return textHeight + textMargin_ * 2;
+    }
     return textHeight + margin_;
 }
 
 int CandidateWindow::modernCandidateRowHeight() const {
-    return itemHeight_ + textMargin_ * 4;
+    return itemHeight_ + textMargin_ * 2;
 }
 
 void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     if (modernStyle_) {
         RECT itemRc;
         itemRect(i, itemRc);
-        ::InflateRect(&itemRc, 0, -textMargin_ / 2);
+        ::InflateRect(&itemRc, 0, -max(1, textMargin_ / 3));
 
         bool isSelected = (useCursor_ && i == currentSel_);
 
@@ -546,7 +561,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         // Draw selection key
         wchar_t selKey[] = L"?. ";
         selKey[0] = selKeys_[i];
-        RECT keyRc = { itemRc.left + textMargin_ * 2, itemRc.top, itemRc.left + textMargin_ * 2 + selKeyWidth_, itemRc.bottom };
+        RECT keyRc = { itemRc.left + textMargin_, itemRc.top, itemRc.left + textMargin_ + selKeyWidth_, itemRc.bottom };
         COLORREF keyColor = isSelected ? highlightText_ : textSecondary_;
         COLORREF oldTextColor = ::SetTextColor(hDC, keyColor);
         int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
@@ -554,7 +569,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
         // Draw candidate text
         wstring& item = items_.at(i);
-        RECT textRc = { keyRc.right + textMargin_, itemRc.top, itemRc.right - textMargin_ * 2, itemRc.bottom };
+        RECT textRc = { keyRc.right + textMargin_, itemRc.top, itemRc.right - textMargin_, itemRc.bottom };
         COLORREF textColor = isSelected ? highlightText_ : textPrimary_;
         ::SetTextColor(hDC, textColor);
         ::DrawTextW(hDC, item.c_str(), (int)item.length(), &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -595,7 +610,7 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
     row = i / candPerRow_;
     col = i % candPerRow_;
     if (modernStyle_) {
-        int extraItemPadding = textMargin_ * 4;
+        int extraItemPadding = textMargin_ * 3;
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
 
         // measure header height
@@ -610,7 +625,7 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
 
         int headerGap = headerHeight > 0 ? textMargin_ : 0;
         int rowHeight = modernCandidateRowHeight();
-        rect.top = margin_ + headerHeight + headerGap + row * (rowHeight + rowSpacing_);
+        rect.top = headerHeight + headerGap + row * (rowHeight + rowSpacing_);
         rect.right = rect.left + (selKeyWidth_ + textWidth_ + extraItemPadding);
         rect.bottom = rect.top + rowHeight;
     } else {

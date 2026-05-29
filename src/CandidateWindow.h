@@ -122,6 +122,8 @@ public:
 
     void setModernStyle(bool modern) {
         modernStyle_ = modern;
+        recalculateSize();
+        refresh();
     }
 
     void setTheme(COLORREF panelBg, COLORREF panelBorder, COLORREF textPrimary, COLORREF textSecondary, COLORREF highlightBg, COLORREF highlightBorder, COLORREF highlightText) {
@@ -132,6 +134,7 @@ public:
         highlightBg_ = highlightBg;
         highlightBorder_ = highlightBorder;
         highlightText_ = highlightText;
+        refresh();
     }
 
     void setSpacing(int contentMargin, int textMargin, int borderRadius) {
@@ -139,6 +142,7 @@ public:
         textMargin_ = textMargin;
         borderRadius_ = borderRadius;
         recalculateSize();
+        refresh();
     }
 
 protected:
