@@ -58,6 +58,16 @@ public:
         return items_;
     }
 
+    const std::wstring& message() const {
+        return message_;
+    }
+
+    void setMessage(const std::wstring& message) {
+        message_ = message;
+        recalculateSize();
+        refresh();
+    }
+
     void setItems(const std::vector<std::wstring>& items, const std::vector<wchar_t>& selKeys) {
         items_ = items;
         selKeys_ = selKeys;
@@ -145,6 +155,9 @@ public:
         refresh();
     }
 
+    void setStableWidth(bool stable, int minWidth);
+    void resetStableWidth();
+
 protected:
     LRESULT wndProc(UINT msg, WPARAM wp , LPARAM lp);
     void onPaint(WPARAM wp, LPARAM lp);
@@ -167,6 +180,7 @@ private:
     int rowSpacing_;
     std::vector<wchar_t> selKeys_;
     std::vector<std::wstring> items_;
+    std::wstring message_;
     int currentSel_;
     bool hasResult_;
     bool useCursor_;
@@ -184,6 +198,9 @@ private:
     int contentMargin_;
     int textMargin_;
     int borderRadius_;
+    bool stableWidth_;
+    int minStableWidth_;
+    int stableWidthPx_;
 };
 
 }

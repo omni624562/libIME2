@@ -61,7 +61,10 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     highlightText_(RGB(11, 58, 117)),
     contentMargin_(8),
     textMargin_(6),
-    borderRadius_(8) {
+    borderRadius_(8),
+    stableWidth_(false),
+    minStableWidth_(0),
+    stableWidthPx_(0) {
 
     if(service->isImmersive()) { // windows 8 app mode
         margin_ = 10;
@@ -324,6 +327,25 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         ::SetTextColor(hDC, oldColor);
     }
 
+    if (!message_.empty()) {
+        int messageTop = modernStyle_ && headerHeight > 0 ? headerHeight + textMargin_ : margin_ + headerHeight;
+        RECT messageRect = {
+            margin_ + (modernStyle_ ? textMargin_ : 0),
+            messageTop,
+            rc.right - margin_ - (modernStyle_ ? textMargin_ : 0),
+            rc.bottom - margin_
+        };
+
+        COLORREF oldTextColor = ::SetTextColor(hDC, modernStyle_ ? textPrimary_ : GetSysColor(COLOR_WINDOWTEXT));
+        int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
+        ::DrawTextW(hDC, message_.c_str(), (int)message_.length(), &messageRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        ::SetBkMode(hDC, oldBkMode);
+        ::SetTextColor(hDC, oldTextColor);
+        SelectObject(hDC, oldFont);
+        EndPaint(hwnd_, &ps);
+        return;
+    }
+
     // paint items
     int col = 0;
     int x = margin_, y = margin_ + headerHeight;
@@ -408,6 +430,15 @@ void CandidateWindow::recalculateSize() {
         headerWidth = pageInfoWidth;
     }
 
+    int messageWidth = 0;
+    int messageHeight = 0;
+    if (!message_.empty()) {
+        SIZE messageSize;
+        ::GetTextExtentPoint32W(hDC, message_.c_str(), (int)message_.length(), &messageSize);
+        messageWidth = messageSize.cx;
+        messageHeight = max(messageSize.cy, fontLineHeight);
+    }
+
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
@@ -417,7 +448,13 @@ void CandidateWindow::recalculateSize() {
     int topPadding = modernStyle_ ? headerHeight + headerGap : margin_ + headerHeight;
     int bottomPadding = margin_;
 
-    if(items_.empty()) {
+    if (!message_.empty()) {
+        int messageRowHeight = modernStyle_ ? messageHeight + textMargin_ * 2 : messageHeight;
+        width = messageWidth + margin_ * 2 + (modernStyle_ ? textMargin_ * 2 : 0);
+        width = max(width, headerWidth + margin_ * 2);
+        height = topPadding + messageRowHeight + bottomPadding;
+    }
+    else if(items_.empty()) {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
         height = headerHeight > 0 ? headerHeight + bottomPadding : margin_ * 2;
     }
@@ -437,6 +474,14 @@ void CandidateWindow::recalculateSize() {
         if(items_.size() % candPerRow_)
             ++rowCount;
         height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + bottomPadding;
+    }
+    if (modernStyle_ && stableWidth_) {
+        int minWidth = max(0, minStableWidth_);
+        if (stableWidthPx_ < minWidth)
+            stableWidthPx_ = minWidth;
+        if (width > stableWidthPx_)
+            stableWidthPx_ = width;
+        width = stableWidthPx_;
     }
     resize(width, height);
 }
@@ -500,6 +545,7 @@ void CandidateWindow::setCurrentSel(int sel) {
 void CandidateWindow::clear() {
     items_.clear();
     selKeys_.clear();
+    message_.clear();
     currentSel_ = 0;
     hasResult_ = false;
 }
@@ -508,6 +554,20 @@ void CandidateWindow::setUseCursor(bool use) {
     useCursor_ = use;
     if(isVisible())
         ::InvalidateRect(hwnd_, NULL, TRUE);
+}
+
+void CandidateWindow::setStableWidth(bool stable, int minWidth) {
+    minWidth = max(0, minWidth);
+    if (stableWidth_ != stable || minStableWidth_ != minWidth)
+        stableWidthPx_ = 0;
+    stableWidth_ = stable;
+    minStableWidth_ = minWidth;
+    recalculateSize();
+    refresh();
+}
+
+void CandidateWindow::resetStableWidth() {
+    stableWidthPx_ = 0;
 }
 
 int CandidateWindow::headerHeight(HDC hDC) const {
