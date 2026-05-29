@@ -375,7 +375,7 @@ void CandidateWindow::recalculateSize() {
     if (modernStyle_) {
         margin_ = contentMargin_;
         rowSpacing_ = max(0, textMargin_ / 2);
-        colSpacing_ = max(8, textMargin_ * 3);
+        colSpacing_ = max(6, textMargin_ + 2);
     }
 
     HDC hDC = ::GetWindowDC(hwnd());
@@ -446,7 +446,7 @@ void CandidateWindow::recalculateSize() {
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    int extraItemPadding = modernStyle_ ? textMargin_ * 3 : 0;
+    int extraItemPadding = modernStyle_ ? textMargin_ * 2 + 2 : 0;
     int modernRowHeight = modernCandidateRowHeight();
     int headerGap = modernStyle_ && headerHeight > 0 ? textMargin_ : 0;
     int topPadding = modernStyle_ ? headerHeight + headerGap : margin_ + headerHeight;
@@ -700,7 +700,7 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
     row = i / columnsPerRow;
     col = i % columnsPerRow;
     if (modernStyle_) {
-        int extraItemPadding = textMargin_ * 3;
+        int extraItemPadding = textMargin_ * 2 + 2;
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
 
         // measure header height
