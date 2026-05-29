@@ -403,17 +403,19 @@ void CandidateWindow::recalculateSize() {
     int extraItemPadding = modernStyle_ ? textMargin_ * 4 : 0;
     int modernRowHeight = modernCandidateRowHeight();
     int headerGap = modernStyle_ && headerHeight > 0 ? textMargin_ : 0;
+    int topPadding = modernStyle_ ? margin_ + headerHeight + headerGap : margin_ + headerHeight;
+    int bottomPadding = modernStyle_ ? max(margin_, textMargin_ * 4) : margin_;
 
     if(items_.empty()) {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
-        height = headerHeight > 0 ? headerHeight + margin_ : margin_ * 2;
+        height = headerHeight > 0 ? headerHeight + bottomPadding : margin_ * 2;
     }
     else if(items_.size() <= candPerRow_) {
         width = (int)items_.size() * (selKeyWidth_ + textWidth_ + extraItemPadding);
         width += colSpacing_ * ((int)items_.size() - 1);
         width += margin_ * 2;
         width = max(width, headerWidth + margin_ * 2);
-        height = (modernStyle_ ? modernRowHeight : itemHeight_) + margin_ * 2 + headerHeight + headerGap;
+        height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) + bottomPadding;
     }
     else {
         width = candPerRow_ * (selKeyWidth_ + textWidth_ + extraItemPadding);
@@ -423,7 +425,7 @@ void CandidateWindow::recalculateSize() {
         int rowCount = (int)items_.size() / candPerRow_;
         if(items_.size() % candPerRow_)
             ++rowCount;
-        height = (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + margin_ * 2 + headerHeight + headerGap;
+        height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + bottomPadding;
     }
     resize(width, height);
 }
@@ -522,6 +524,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     if (modernStyle_) {
         RECT itemRc;
         itemRect(i, itemRc);
+        ::InflateRect(&itemRc, 0, -textMargin_ / 2);
 
         bool isSelected = (useCursor_ && i == currentSel_);
 
