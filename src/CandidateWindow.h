@@ -63,6 +63,8 @@ public:
     }
 
     void setMessage(const std::wstring& message) {
+        if (message_ == message)
+            return;
         message_ = message;
         recalculateSize();
         refresh();
@@ -73,6 +75,12 @@ public:
         selKeys_ = selKeys;
         recalculateSize();
         refresh();
+    }
+
+    void setTextRows(const std::wstring& message, const std::wstring& header, const std::wstring& pageInfo) {
+        message_ = message;
+        header_ = header;
+        pageInfo_ = pageInfo;
     }
 
     void add(std::wstring item, wchar_t selKey) {
@@ -115,6 +123,8 @@ public:
     }
 
     void setHeader(const std::wstring& header) {
+        if (header_ == header)
+            return;
         header_ = header;
         recalculateSize();
         refresh();
@@ -125,18 +135,32 @@ public:
     }
 
     void setPageInfo(const std::wstring& info) {
+        if (pageInfo_ == info)
+            return;
         pageInfo_ = info;
         recalculateSize();
         refresh();
     }
 
     void setModernStyle(bool modern) {
+        if (modernStyle_ == modern)
+            return;
         modernStyle_ = modern;
         recalculateSize();
         refresh();
     }
 
     void setTheme(COLORREF panelBg, COLORREF panelBorder, COLORREF textPrimary, COLORREF textSecondary, COLORREF highlightBg, COLORREF highlightBorder, COLORREF highlightText) {
+        if (
+            panelBg_ == panelBg &&
+            panelBorder_ == panelBorder &&
+            textPrimary_ == textPrimary &&
+            textSecondary_ == textSecondary &&
+            highlightBg_ == highlightBg &&
+            highlightBorder_ == highlightBorder &&
+            highlightText_ == highlightText
+        )
+            return;
         panelBg_ = panelBg;
         panelBorder_ = panelBorder;
         textPrimary_ = textPrimary;
@@ -148,9 +172,60 @@ public:
     }
 
     void setSpacing(int contentMargin, int textMargin, int borderRadius) {
+        if (
+            contentMargin_ == contentMargin &&
+            textMargin_ == textMargin &&
+            borderRadius_ == borderRadius
+        )
+            return;
         contentMargin_ = contentMargin;
         textMargin_ = textMargin;
         borderRadius_ = borderRadius;
+        recalculateSize();
+        refresh();
+    }
+
+    enum KeyStyle {
+        KeyStyleKeycap = 0,
+        KeyStyleDivider = 1,
+        KeyStyleQuiet = 2,
+        KeyStyleBadgeMinimal = 3,
+        KeyStyleAccentDot = 4,
+        KeyStyleRail = 5,
+        KeyStyleMonospaceSlot = 6,
+        KeyStyleWordFirst = 7,
+        KeyStyleSoftCapsule = 8,
+        KeyStyleLeftTag = 9,
+        KeyStyleGlowKey = 10,
+        KeyStyleMicroTab = 11,
+        KeyStyleWordAnchor = 12
+    };
+
+    void setKeyStyle(int keyStyle) {
+        if (keyStyle < KeyStyleKeycap)
+            keyStyle = KeyStyleKeycap;
+        if (keyStyle > KeyStyleWordAnchor)
+            keyStyle = KeyStyleWordAnchor;
+        if (keyStyle_ == keyStyle)
+            return;
+        keyStyle_ = keyStyle;
+        refresh();
+    }
+
+    enum MessageStyle {
+        MessageStyleBadge = 0,
+        MessageStyleBar = 1,
+        MessageStyleDot = 2
+    };
+
+    void setMessageStyle(int messageStyle) {
+        if (messageStyle < MessageStyleBadge)
+            messageStyle = MessageStyleBadge;
+        if (messageStyle > MessageStyleDot)
+            messageStyle = MessageStyleDot;
+        if (messageStyle_ == messageStyle)
+            return;
+        messageStyle_ = messageStyle;
         recalculateSize();
         refresh();
     }
@@ -200,6 +275,8 @@ private:
     int contentMargin_;
     int textMargin_;
     int borderRadius_;
+    int keyStyle_;
+    int messageStyle_;
     bool stableWidth_;
     int minStableWidth_;
     int stableWidthPx_;
