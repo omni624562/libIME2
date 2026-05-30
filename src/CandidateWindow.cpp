@@ -41,6 +41,33 @@ static COLORREF blendColor(COLORREF a, COLORREF b, int percentB) {
     );
 }
 
+static int modernCandidateTextGap(int) {
+    return 1;
+}
+
+static int modernCandidateWidthSafety(int textMargin) {
+    return max(2, textMargin / 2);
+}
+
+static int modernCandidateExtraWidth(int textMargin) {
+    return textMargin * 2 + modernCandidateTextGap(textMargin) + modernCandidateWidthSafety(textMargin);
+}
+
+static void applyCandidateWindowRegion(HWND hwnd, bool modernStyle, int width, int height, int borderRadius) {
+    if (!hwnd)
+        return;
+
+    if (!modernStyle || borderRadius <= 0 || width <= 0 || height <= 0) {
+        ::SetWindowRgn(hwnd, NULL, TRUE);
+        return;
+    }
+
+    int diameter = borderRadius * 2;
+    HRGN region = ::CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter);
+    if (region && ::SetWindowRgn(hwnd, region, TRUE) == 0)
+        ::DeleteObject(region);
+}
+
 CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     ImeWindow(service),
     shown_(false),
@@ -364,7 +391,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             y += modernStyle_ ? modernCandidateRowHeight() + rowSpacing_ : itemHeight_ + rowSpacing_;
         }
         else {
-            x += colSpacing_ + selKeyWidth_ + textWidth_ + (modernStyle_ ? textMargin_ * 4 : 0);
+            x += colSpacing_ + selKeyWidth_ + textWidth_ + (modernStyle_ ? modernCandidateExtraWidth(textMargin_) : 0);
         }
     }
     SelectObject(hDC, oldFont);
@@ -446,7 +473,7 @@ void CandidateWindow::recalculateSize() {
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    int extraItemPadding = modernStyle_ ? textMargin_ * 2 + 2 : 0;
+    int extraItemPadding = modernStyle_ ? modernCandidateExtraWidth(textMargin_) : 0;
     int modernRowHeight = modernCandidateRowHeight();
     int headerGap = modernStyle_ && headerHeight > 0 ? textMargin_ : 0;
     int topPadding = modernStyle_ ? headerHeight + headerGap : margin_ + headerHeight;
@@ -469,7 +496,10 @@ void CandidateWindow::recalculateSize() {
     }
     else if(items_.empty()) {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
-        height = headerHeight > 0 ? headerHeight + bottomPadding : margin_ * 2;
+        if (modernStyle_ && headerHeight > 0)
+            height = topPadding + modernRowHeight + bottomPadding;
+        else
+            height = headerHeight > 0 ? headerHeight + bottomPadding : margin_ * 2;
     }
     else {
         int columnCount = min((int)items_.size(), effectiveCandPerRow_);
@@ -501,6 +531,7 @@ void CandidateWindow::recalculateSize() {
         width = stableWidthPx_;
     }
     resize(width, height);
+    applyCandidateWindowRegion(hwnd_, modernStyle_, width, height, borderRadius_);
 }
 
 void CandidateWindow::setCandPerRow(int n) {
@@ -658,7 +689,8 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
         // Draw candidate text
         wstring& item = items_.at(i);
-        RECT textRc = { keyRc.right + textMargin_, itemRc.top, itemRc.right - textMargin_, itemRc.bottom };
+        int textGap = modernCandidateTextGap(textMargin_);
+        RECT textRc = { keyRc.right + textGap, itemRc.top, itemRc.right - textMargin_, itemRc.bottom };
         COLORREF textColor = isSelected ? highlightText_ : textPrimary_;
         ::SetTextColor(hDC, textColor);
         ::DrawTextW(hDC, item.c_str(), (int)item.length(), &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -700,7 +732,7 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
     row = i / columnsPerRow;
     col = i % columnsPerRow;
     if (modernStyle_) {
-        int extraItemPadding = textMargin_ * 2 + 2;
+        int extraItemPadding = modernCandidateExtraWidth(textMargin_);
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
 
         // measure header height
