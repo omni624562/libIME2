@@ -272,7 +272,10 @@ STDMETHODIMP CandidateWindow::GetUpdatedFlags(DWORD *pdwFlags) {
 STDMETHODIMP CandidateWindow::GetDocumentMgr(ITfDocumentMgr **ppdim) {
     if (!textService_)
         return E_FAIL;
-    return textService_->currentContext()->GetDocumentMgr(ppdim);
+    auto context = textService_->currentContext();
+    if (!context)
+        return E_FAIL;
+    return context->GetDocumentMgr(ppdim);
 }
 
 STDMETHODIMP CandidateWindow::GetCount(UINT *puCount) {
@@ -434,7 +437,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             RECT labelRect = { textX, rowTop, pageInfoLeft - textMargin_, rowBottom };
             if (!label.empty()) {
                 ::SetTextColor(hDC, headerLabelColor);
-                ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
                 SIZE labelSize;
                 ::GetTextExtentPoint32W(hDC, label.c_str(), (int)label.length(), &labelSize);
@@ -442,7 +445,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             }
 
             ::SetTextColor(hDC, headerValueColor);
-            ::DrawTextW(hDC, value.c_str(), (int)value.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            ::DrawTextW(hDC, value.c_str(), (int)value.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
 
         if (!pageInfo_.empty()) {
@@ -452,7 +455,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             int piX = pageInfoLeft;
             RECT piRect = { piX, rowTop, rc.right - margin_, rowBottom };
             ::SetTextColor(hDC, headerLabelColor);
-            ::DrawTextW(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            ::DrawTextW(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
 
         if (modernStyle_) {
@@ -703,8 +706,7 @@ void CandidateWindow::recalculateSize() {
         height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + bottomPadding;
     }
     if (modernStyle_ && wrapToMaxWidth_ && maxWidth_ > 0) {
-        int maxWindowWidth = max(maxWidth_, headerWidth + margin_ * 2);
-        maxWindowWidth = max(maxWindowWidth, minStableWidth_);
+        int maxWindowWidth = max(maxWidth_, minStableWidth_);
         width = min(width, maxWindowWidth);
     }
     if (modernStyle_ && stableWidth_) {
@@ -714,8 +716,7 @@ void CandidateWindow::recalculateSize() {
         if (width > stableWidthPx_)
             stableWidthPx_ = width;
         if (wrapToMaxWidth_ && maxWidth_ > 0) {
-            int maxWindowWidth = max(maxWidth_, headerWidth + margin_ * 2);
-            maxWindowWidth = max(maxWindowWidth, minWidth);
+            int maxWindowWidth = max(maxWidth_, minWidth);
             stableWidthPx_ = min(stableWidthPx_, maxWindowWidth);
         }
         width = stableWidthPx_;
