@@ -774,7 +774,7 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
 }
 
 void CandidateWindow::setCurrentSel(int sel) {
-    if(sel >= (int)items_.size())
+    if(sel < 0 || sel >= (int)items_.size())
         sel = 0;
     if (currentSel_ != sel) {
         currentSel_ = sel;
