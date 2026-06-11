@@ -244,6 +244,7 @@ void CandidateWindow::setFont(HFONT f) {
         cachedKeyFont_ = NULL;
         cachedKeyFontBase_ = NULL;
     }
+    textSizeCache_.clear(); // extents were measured with the previous font
     ImeWindow::setFont(f);
 }
 
@@ -673,10 +674,19 @@ void CandidateWindow::recalculateSize() {
         if(selKeySize.cx > selKeyWidth_)
             selKeyWidth_ = selKeySize.cx;
 
-        // the candidate string
+        // the candidate string (extents cached per string for the current font)
         SIZE candidateSize;
         wstring& item = items_.at(i);
-        ::GetTextExtentPoint32W(hDC, item.c_str(), item.length(), &candidateSize);
+        auto cachedSize = textSizeCache_.find(item);
+        if (cachedSize != textSizeCache_.end()) {
+            candidateSize = cachedSize->second;
+        }
+        else {
+            ::GetTextExtentPoint32W(hDC, item.c_str(), item.length(), &candidateSize);
+            if (textSizeCache_.size() >= 4096)
+                textSizeCache_.clear();
+            textSizeCache_.emplace(item, candidateSize);
+        }
         if(candidateSize.cx > textWidth_)
             textWidth_ = candidateSize.cx;
         int itemHeight = max(candidateSize.cy, selKeySize.cy);

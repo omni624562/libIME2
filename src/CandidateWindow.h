@@ -22,6 +22,7 @@
 
 #include "ImeWindow.h"
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "ComObject.h"
 
@@ -308,6 +309,9 @@ private:
     HPEN panelBorderPen_;
     HPEN headerDividerPen_;
     int measuredHeaderHeight_; // refreshed by recalculateSize()
+    // candidate text extents measured with the current font; IMEs show the
+    // same candidates over and over, so skip GetTextExtentPoint32W on hits
+    std::unordered_map<std::wstring, SIZE> textSizeCache_;
 };
 
 }

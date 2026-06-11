@@ -83,6 +83,14 @@ void ImeWindow::move(int x, int y) {
         y = rc.top;
     else if((y + h) > rc.bottom)
         y = rc.bottom - h;
+    // skip the move (and the forced repaint) when nothing changed; this runs
+    // on every candidate update during typing with mostly identical positions
+    RECT current;
+    if (::GetWindowRect(hwnd_, &current) &&
+        current.left == x && current.top == y &&
+        (current.right - current.left) == w && (current.bottom - current.top) == h) {
+        return;
+    }
     ::MoveWindow(hwnd_, x, y, w, h, TRUE);
 }
 
