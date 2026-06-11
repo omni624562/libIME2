@@ -224,6 +224,28 @@ public:
         MessageStyleDot = 2
     };
 
+    // visual treatment of the IME-name label (e.g. 大易) in the header row
+    enum HeaderLabelStyle {
+        HeaderLabelPlain = 0,
+        HeaderLabelBadge = 1,
+        HeaderLabelAccent = 2,
+        HeaderLabelTag = 3,
+        HeaderLabelBar = 4,
+        HeaderLabelUnderline = 5
+    };
+
+    void setHeaderLabelStyle(int style) {
+        if (style < HeaderLabelPlain)
+            style = HeaderLabelPlain;
+        if (style > HeaderLabelUnderline)
+            style = HeaderLabelUnderline;
+        if (headerLabelStyle_ == style)
+            return;
+        headerLabelStyle_ = style;
+        recalculateSize();
+        refresh();
+    }
+
     void setMessageStyle(int messageStyle) {
         if (messageStyle < MessageStyleBadge)
             messageStyle = MessageStyleBadge;
@@ -294,6 +316,7 @@ private:
     int borderRadius_;
     int keyStyle_;
     int messageStyle_;
+    int headerLabelStyle_;
     bool stableWidth_;
     int minStableWidth_;
     int stableWidthPx_;

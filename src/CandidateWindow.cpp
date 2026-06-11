@@ -148,6 +148,19 @@ static int modernCandidateWidthSafety(int textMargin) {
     return max(2, textMargin / 2);
 }
 
+// extra horizontal room the header label decoration needs beyond the text
+static int headerLabelExtraWidth(int style, int textMargin) {
+    switch (style) {
+    case CandidateWindow::HeaderLabelBadge:
+    case CandidateWindow::HeaderLabelTag:
+        return max(3, textMargin / 2 + 1) * 2;
+    case CandidateWindow::HeaderLabelBar:
+        return 2 + max(3, textMargin / 2);
+    default:
+        return 0;
+    }
+}
+
 static int modernCandidateExtraWidth(int keyStyle, int textMargin) {
     int stylePadding = keyStyle == CandidateWindow::KeyStyleLeftTag ? textMargin : 0;
     return textMargin * 2 + modernCandidateTextGap(keyStyle, textMargin) + modernCandidateWidthSafety(textMargin) + stylePadding;
@@ -204,6 +217,7 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     borderRadius_(8),
     keyStyle_(KeyStyleKeycap),
     messageStyle_(MessageStyleBadge),
+    headerLabelStyle_(HeaderLabelPlain),
     stableWidth_(false),
     minStableWidth_(0),
     stableWidthPx_(0),
@@ -497,12 +511,67 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             int textX = margin_ + (modernStyle_ ? textMargin_ : 0);
             RECT labelRect = { textX, rowTop, pageInfoLeft - textMargin_, rowBottom };
             if (!label.empty()) {
-                ::SetTextColor(hDC, headerLabelColor);
-                ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
                 SIZE labelSize;
                 ::GetTextExtentPoint32W(hDC, label.c_str(), (int)label.length(), &labelSize);
-                labelRect.left += labelSize.cx + textMargin_;
+                int labelStyle = modernStyle_ ? headerLabelStyle_ : HeaderLabelPlain;
+                int advance = labelSize.cx;
+
+                if (labelStyle == HeaderLabelBadge || labelStyle == HeaderLabelTag) {
+                    int padX = max(3, textMargin_ / 2 + 1);
+                    int padY = max(1, textMargin_ / 3);
+                    RECT chipRc = { labelRect.left, rowTop + padY, labelRect.left + labelSize.cx + padX * 2, rowBottom - padY };
+                    COLORREF chipBg = labelStyle == HeaderLabelBadge ? blendColor(panelBg_, highlightBg_, 26) : panelBg_;
+                    COLORREF chipBorder = labelStyle == HeaderLabelBadge
+                        ? blendColor(highlightBorder_, chipBg, 35)
+                        : blendColor(textSecondary_, panelBg_, 55);
+                    HBRUSH chipBrush = ::CreateSolidBrush(chipBg);
+                    HPEN chipPen = ::CreatePen(PS_SOLID, 1, chipBorder);
+                    HGDIOBJ oldChipBrush = ::SelectObject(hDC, chipBrush);
+                    HGDIOBJ oldChipPen = ::SelectObject(hDC, chipPen);
+                    int chipRadius = max(4, min(borderRadius_, (int)(chipRc.bottom - chipRc.top) / 2));
+                    ::RoundRect(hDC, chipRc.left, chipRc.top, chipRc.right, chipRc.bottom, chipRadius, chipRadius);
+                    ::SelectObject(hDC, oldChipBrush);
+                    ::SelectObject(hDC, oldChipPen);
+                    ::DeleteObject(chipBrush);
+                    ::DeleteObject(chipPen);
+                    ::SetTextColor(hDC, labelStyle == HeaderLabelBadge
+                        ? readableTextOnColor(chipBg, highlightText_, textPrimary_)
+                        : headerLabelColor);
+                    RECT chipTextRc = { chipRc.left + padX, rowTop, chipRc.left + padX + labelSize.cx, rowBottom };
+                    ::DrawTextW(hDC, label.c_str(), (int)label.length(), &chipTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                    advance = labelSize.cx + padX * 2;
+                }
+                else if (labelStyle == HeaderLabelBar) {
+                    int barGap = max(3, textMargin_ / 2);
+                    int barInset = max(2, textMargin_ / 2);
+                    RECT barRc = { labelRect.left, rowTop + barInset, labelRect.left + 2, rowBottom - barInset };
+                    HBRUSH barBrush = ::CreateSolidBrush(headerValueColor);
+                    ::FillRect(hDC, &barRc, barBrush);
+                    ::DeleteObject(barBrush);
+                    ::SetTextColor(hDC, headerLabelColor);
+                    RECT barTextRc = { labelRect.left + 2 + barGap, rowTop, labelRect.right, rowBottom };
+                    ::DrawTextW(hDC, label.c_str(), (int)label.length(), &barTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                    advance = 2 + barGap + labelSize.cx;
+                }
+                else if (labelStyle == HeaderLabelAccent) {
+                    ::SetTextColor(hDC, headerValueColor);
+                    ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                }
+                else {
+                    ::SetTextColor(hDC, headerLabelColor);
+                    ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                    if (labelStyle == HeaderLabelUnderline) {
+                        HPEN underlinePen = ::CreatePen(PS_SOLID, 1, headerValueColor);
+                        HGDIOBJ oldUnderlinePen = ::SelectObject(hDC, underlinePen);
+                        int underlineY = rowBottom - max(2, textMargin_ / 2);
+                        ::MoveToEx(hDC, labelRect.left, underlineY, NULL);
+                        ::LineTo(hDC, labelRect.left + labelSize.cx, underlineY);
+                        ::SelectObject(hDC, oldUnderlinePen);
+                        ::DeleteObject(underlinePen);
+                    }
+                }
+
+                labelRect.left += advance + textMargin_;
             }
 
             ::SetTextColor(hDC, headerValueColor);
@@ -713,6 +782,8 @@ void CandidateWindow::recalculateSize() {
         ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
         // header row must fit both the label text and the page-info text
         headerWidth = headerSize.cx + (pageInfoWidth > 0 ? colSpacing_ * 2 + pageInfoWidth : 0);
+        if (modernStyle_)
+            headerWidth += headerLabelExtraWidth(headerLabelStyle_, textMargin_);
     }
     else if (pageInfoWidth > 0) {
         // page info with no header: size the row to fit the page info alone
