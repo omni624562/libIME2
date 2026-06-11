@@ -168,8 +168,13 @@ public:
         highlightBg_ = highlightBg;
         highlightBorder_ = highlightBorder;
         highlightText_ = highlightText;
+        releaseThemeBrushes();
         refresh();
     }
+
+    // shadows ImeWindow::setFont: the base deletes the old HFONT, so cached
+    // fonts derived from it must be dropped before the handle can be reused
+    void setFont(HFONT f);
 
     void setSpacing(int contentMargin, int textMargin, int borderRadius) {
         if (
@@ -247,6 +252,11 @@ protected:
     void itemRect(int i, RECT& rect);
     int headerHeight(HDC hDC) const;
     int modernCandidateRowHeight() const;
+    HFONT scaledKeyFont();
+    HBRUSH panelBgBrush();
+    HPEN panelBorderPen();
+    HPEN headerDividerPen();
+    void releaseThemeBrushes();
 
 protected: // COM object should not be deleted directly. calling Release() instead.
     ~CandidateWindow(void);
@@ -288,6 +298,16 @@ private:
     int stableWidthPx_;
     bool wrapToMaxWidth_;
     int maxWidth_;
+
+    // paint caches: scaled selection-key font and theme GDI objects are
+    // reused across paints instead of being created per item per paint
+    HFONT cachedKeyFont_;
+    HFONT cachedKeyFontBase_;
+    int cachedKeyFontPercent_;
+    HBRUSH panelBgBrush_;
+    HPEN panelBorderPen_;
+    HPEN headerDividerPen_;
+    int measuredHeaderHeight_; // refreshed by recalculateSize()
 };
 
 }

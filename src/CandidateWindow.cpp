@@ -208,7 +208,14 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     minStableWidth_(0),
     stableWidthPx_(0),
     wrapToMaxWidth_(false),
-    maxWidth_(0) {
+    maxWidth_(0),
+    cachedKeyFont_(NULL),
+    cachedKeyFontBase_(NULL),
+    cachedKeyFontPercent_(0),
+    panelBgBrush_(NULL),
+    panelBorderPen_(NULL),
+    headerDividerPen_(NULL),
+    measuredHeaderHeight_(0) {
 
     if(service->isImmersive()) { // windows 8 app mode
         margin_ = 10;
@@ -226,6 +233,63 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
 }
 
 CandidateWindow::~CandidateWindow(void) {
+    if (cachedKeyFont_)
+        ::DeleteObject(cachedKeyFont_);
+    releaseThemeBrushes();
+}
+
+void CandidateWindow::setFont(HFONT f) {
+    if (cachedKeyFont_) {
+        ::DeleteObject(cachedKeyFont_);
+        cachedKeyFont_ = NULL;
+        cachedKeyFontBase_ = NULL;
+    }
+    ImeWindow::setFont(f);
+}
+
+HFONT CandidateWindow::scaledKeyFont() {
+    int percent = modernCandidateKeyFontPercent(keyStyle_);
+    if (cachedKeyFont_ && cachedKeyFontBase_ == font_ && cachedKeyFontPercent_ == percent)
+        return cachedKeyFont_;
+    if (cachedKeyFont_)
+        ::DeleteObject(cachedKeyFont_);
+    cachedKeyFont_ = createScaledFont(font_, percent);
+    cachedKeyFontBase_ = font_;
+    cachedKeyFontPercent_ = percent;
+    return cachedKeyFont_;
+}
+
+HBRUSH CandidateWindow::panelBgBrush() {
+    if (!panelBgBrush_)
+        panelBgBrush_ = ::CreateSolidBrush(panelBg_);
+    return panelBgBrush_;
+}
+
+HPEN CandidateWindow::panelBorderPen() {
+    if (!panelBorderPen_)
+        panelBorderPen_ = ::CreatePen(PS_SOLID, 1, panelBorder_);
+    return panelBorderPen_;
+}
+
+HPEN CandidateWindow::headerDividerPen() {
+    if (!headerDividerPen_)
+        headerDividerPen_ = ::CreatePen(PS_SOLID, 1, blendColor(panelBorder_, panelBg_, 35));
+    return headerDividerPen_;
+}
+
+void CandidateWindow::releaseThemeBrushes() {
+    if (panelBgBrush_) {
+        ::DeleteObject(panelBgBrush_);
+        panelBgBrush_ = NULL;
+    }
+    if (panelBorderPen_) {
+        ::DeleteObject(panelBorderPen_);
+        panelBorderPen_ = NULL;
+    }
+    if (headerDividerPen_) {
+        ::DeleteObject(headerDividerPen_);
+        headerDividerPen_ = NULL;
+    }
 }
 
 // ITfUIElement
@@ -372,18 +436,14 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         SetTextColor(hDC, textPrimary_);
         SetBkColor(hDC, panelBg_);
 
-        // Draw rounded modern background and border
-        HBRUSH bgBrush = ::CreateSolidBrush(panelBg_);
-        HPEN borderPen = ::CreatePen(PS_SOLID, 1, panelBorder_);
-        HGDIOBJ oldBrush = ::SelectObject(hDC, bgBrush);
-        HGDIOBJ oldPen = ::SelectObject(hDC, borderPen);
+        // Draw rounded modern background and border (cached theme objects)
+        HGDIOBJ oldBrush = ::SelectObject(hDC, panelBgBrush());
+        HGDIOBJ oldPen = ::SelectObject(hDC, panelBorderPen());
 
         ::RoundRect(hDC, rc.left, rc.top, rc.right, rc.bottom, borderRadius_ * 2, borderRadius_ * 2);
 
         ::SelectObject(hDC, oldBrush);
         ::SelectObject(hDC, oldPen);
-        ::DeleteObject(bgBrush);
-        ::DeleteObject(borderPen);
     } else {
         SetTextColor(hDC, GetSysColor(COLOR_WINDOWTEXT));
         SetBkColor(hDC, GetSysColor(COLOR_WINDOW));
@@ -459,13 +519,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         }
 
         if (modernStyle_) {
-            HPEN dividerPen = ::CreatePen(PS_SOLID, 1, blendColor(panelBorder_, panelBg_, 35));
-            HGDIOBJ oldPen = ::SelectObject(hDC, dividerPen);
+            HGDIOBJ oldPen = ::SelectObject(hDC, headerDividerPen());
             int dividerY = max(0, headerHeight - 1);
             ::MoveToEx(hDC, 1, dividerY, NULL);
             ::LineTo(hDC, rc.right - 1, dividerY);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(dividerPen);
         }
 
         if (modernStyle_) {
@@ -628,8 +686,10 @@ void CandidateWindow::recalculateSize() {
     if (itemHeight_ < fontLineHeight)
         itemHeight_ = fontLineHeight;
 
-    // measure header (reuse the same DC)
+    // measure header (reuse the same DC); cache it so itemRect() does not
+    // need a fresh window DC on every selection move
     int headerHeight = this->headerHeight(hDC);
+    measuredHeaderHeight_ = headerHeight;
     int headerWidth = 0;
     int pageInfoWidth = 0;
     if (!pageInfo_.empty()) {
@@ -762,12 +822,13 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
     }
     // if currently selected item is changed, redraw
     if(currentSel_ != oldSel) {
-        // repaint the old and new items
-        RECT rect;
-        itemRect(oldSel, rect);
-        ::InvalidateRect(hwnd_, &rect, TRUE);
-        itemRect(currentSel_, rect);
-        ::InvalidateRect(hwnd_, &rect, TRUE);
+        // repaint old and new items in one pass; onPaint always repaints the
+        // full background within the clip, so skip the erase step
+        RECT oldRect, newRect, unionRect;
+        itemRect(oldSel, oldRect);
+        itemRect(currentSel_, newRect);
+        ::UnionRect(&unionRect, &oldRect, &newRect);
+        ::InvalidateRect(hwnd_, &unionRect, FALSE);
         return true;
     }
     return false;
@@ -779,7 +840,7 @@ void CandidateWindow::setCurrentSel(int sel) {
     if (currentSel_ != sel) {
         currentSel_ = sel;
         if (isVisible())
-            ::InvalidateRect(hwnd_, NULL, TRUE);
+            ::InvalidateRect(hwnd_, NULL, FALSE); // onPaint repaints the full background
     }
 }
 
@@ -933,7 +994,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
         int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
         COLORREF oldTextColor = ::SetTextColor(hDC, keyColor);
-        HFONT keyFont = createScaledFont(font_, modernCandidateKeyFontPercent(keyStyle_));
+        HFONT keyFont = scaledKeyFont();
         HGDIOBJ oldKeyFont = keyFont ? ::SelectObject(hDC, keyFont) : NULL;
 
         if (keyStyle_ == KeyStyleKeycap) {
@@ -1060,8 +1121,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         }
 
         if (keyFont) {
-            ::SelectObject(hDC, oldKeyFont);
-            ::DeleteObject(keyFont);
+            ::SelectObject(hDC, oldKeyFont); // cached font is reused, not deleted
         }
 
         // Draw candidate text
@@ -1121,14 +1181,11 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
         int extraItemPadding = modernCandidateExtraWidth(keyStyle_, textMargin_);
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
 
-        // measure header height
+        // header height was measured by the last recalculateSize(); content
+        // changes always pass through it before items are hit-tested/painted
         int headerHeight = 0;
         if (!header_.empty() || !pageInfo_.empty()) {
-            HDC hDC = ::GetWindowDC(hwnd());
-            HGDIOBJ oldFont = ::SelectObject(hDC, font_);
-            headerHeight = this->headerHeight(hDC);
-            ::SelectObject(hDC, oldFont);
-            ::ReleaseDC(hwnd(), hDC);
+            headerHeight = measuredHeaderHeight_;
         }
 
         int headerGap = headerHeight > 0 ? textMargin_ : 0;
