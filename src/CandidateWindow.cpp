@@ -815,6 +815,11 @@ void CandidateWindow::resetStableWidth() {
     stableWidthPx_ = 0;
 }
 
+void CandidateWindow::seedStableWidth(int px) {
+    if (px > stableWidthPx_)
+        stableWidthPx_ = px;
+}
+
 void CandidateWindow::setMaxWidth(bool wrapToMaxWidth, int maxWidth) {
     maxWidth = max(0, maxWidth);
     if (wrapToMaxWidth_ == wrapToMaxWidth && maxWidth_ == maxWidth)

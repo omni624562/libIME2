@@ -234,6 +234,12 @@ public:
     void resetStableWidth();
     void setMaxWidth(bool wrapToMaxWidth, int maxWidth);
 
+    // the grown stable width, so callers can carry it across window recreation
+    int stableWidthPx() const {
+        return stableWidthPx_;
+    }
+    void seedStableWidth(int px);
+
 protected:
     LRESULT wndProc(UINT msg, WPARAM wp , LPARAM lp);
     void onPaint(WPARAM wp, LPARAM lp);
