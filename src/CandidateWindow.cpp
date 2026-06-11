@@ -1196,16 +1196,10 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
     } else {
         rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_);
 
-        // measure header height
+        // header height was measured by the last recalculateSize()
         int headerHeight = 0;
         if (!header_.empty()) {
-            HDC hDC = ::GetWindowDC(hwnd());
-            HGDIOBJ oldFont = ::SelectObject(hDC, font_);
-            SIZE headerSize;
-            ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
-            ::SelectObject(hDC, oldFont);
-            ::ReleaseDC(hwnd(), hDC);
-            headerHeight = headerSize.cy + margin_;
+            headerHeight = measuredHeaderHeight_;
         }
 
         rect.top = margin_ + headerHeight + row * (itemHeight_ + rowSpacing_);
