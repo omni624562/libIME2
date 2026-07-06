@@ -150,16 +150,16 @@ void TextService::setKeyboardOpen(bool open) {
 }
 
 // check if current insertion point is in the range of composition.
-// if not in range, insertion is now allowed
+// if not in range, insertion is not allowed
 bool TextService::isInsertionAllowed(EditSession* session) const {
     TfEditCookie cookie = session->editCookie();
     ULONG selectionNum;
+    bool allowed = false;
     if(isComposing()) {
         TF_SELECTION selection;
         if(session->context()->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection, &selectionNum) == S_OK) {
             ComPtr<ITfRange> compositionRange;
             if(composition_->GetRange(&compositionRange) == S_OK) {
-                bool allowed = false;
                 // check if current selection is covered by composition range
                 LONG compareResult1;
                 LONG compareResult2;
@@ -172,7 +172,7 @@ bool TextService::isInsertionAllowed(EditSession* session) const {
             selection.range->Release();
         }
     }
-    return false;
+    return allowed;
 }
 
 void TextService::startComposition(ITfContext* context) {
