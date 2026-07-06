@@ -273,6 +273,19 @@ private:
     DWORD activateFlags_;
     bool isKeyboardOpened_;
 
+    // One-shot cache: stores the OnTestKeyDown filter result so the
+    // immediately-following OnKeyDown for the same (wParam, lParam) can skip
+    // a second filterKeyDown() RPC call. Cleared after each OnKeyDown use.
+    bool filterDownCacheValid_;
+    WPARAM filterDownWParam_;
+    LPARAM filterDownLParam_;
+    bool filterDownResult_;
+
+    bool filterUpCacheValid_;
+    WPARAM filterUpWParam_;
+    LPARAM filterUpLParam_;
+    bool filterUpResult_;
+
     // event sink cookies
     SinkAdvice threadMgrEventSink_;
     SinkAdvice activateLanguageProfileNotifySink_;

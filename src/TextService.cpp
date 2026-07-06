@@ -39,6 +39,14 @@ TextService::TextService(ImeModule* module):
     clientId_(TF_CLIENTID_NULL),
     activateFlags_(0),
     isKeyboardOpened_(false),
+    filterDownCacheValid_(false),
+    filterDownWParam_(0),
+    filterDownLParam_(0),
+    filterDownResult_(false),
+    filterUpCacheValid_(false),
+    filterUpWParam_(0),
+    filterUpLParam_(0),
+    filterUpResult_(false),
     langBarSinkCookie_(TF_INVALID_COOKIE) {
 
 }
@@ -717,10 +725,16 @@ STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
     if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
         *pfEaten = FALSE;
+        filterDownCacheValid_ = false;
     }
     else {
         KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-        *pfEaten = (BOOL)filterKeyDown(keyEvent);
+        bool result = filterKeyDown(keyEvent);
+        *pfEaten = (BOOL)result;
+        filterDownWParam_ = wParam;
+        filterDownLParam_ = lParam;
+        filterDownResult_ = result;
+        filterDownCacheValid_ = true;
     }
     return S_OK;
 }
@@ -730,11 +744,21 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM 
     // So we need to test it again here! Windows TSF sucks!
     if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
         *pfEaten = FALSE;
+        filterDownCacheValid_ = false;
     }
     else {
-        KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-        *pfEaten = (BOOL)filterKeyDown(keyEvent);
-        if(*pfEaten) { // we want to eat the key
+        bool eaten;
+        if (filterDownCacheValid_ && filterDownWParam_ == wParam && filterDownLParam_ == lParam) {
+            eaten = filterDownResult_;
+        }
+        else {
+            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
+            eaten = filterKeyDown(keyEvent);
+        }
+        filterDownCacheValid_ = false;
+        *pfEaten = (BOOL)eaten;
+        if(eaten) { // we want to eat the key
+            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
             HRESULT sessionResult;
             // ask TSF for an edit session. If editing is approved by TSF,
             // KeyEditSession::DoEditSession will be called, which in turns
@@ -758,10 +782,16 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM 
 STDMETHODIMP TextService::OnTestKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
     if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
         *pfEaten = FALSE;
+        filterUpCacheValid_ = false;
     }
     else {
         KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-        *pfEaten = (BOOL)filterKeyUp(keyEvent);
+        bool result = filterKeyUp(keyEvent);
+        *pfEaten = (BOOL)result;
+        filterUpWParam_ = wParam;
+        filterUpLParam_ = lParam;
+        filterUpResult_ = result;
+        filterUpCacheValid_ = true;
     }
     return S_OK;
 }
@@ -771,11 +801,21 @@ STDMETHODIMP TextService::OnKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM lP
     // So we need to test it again here! Windows TSF sucks!
     if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
         *pfEaten = FALSE;
+        filterUpCacheValid_ = false;
     }
     else {
-        KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
-        *pfEaten = (BOOL)filterKeyUp(keyEvent);
-        if(*pfEaten) {
+        bool eaten;
+        if (filterUpCacheValid_ && filterUpWParam_ == wParam && filterUpLParam_ == lParam) {
+            eaten = filterUpResult_;
+        }
+        else {
+            KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
+            eaten = filterKeyUp(keyEvent);
+        }
+        filterUpCacheValid_ = false;
+        *pfEaten = (BOOL)eaten;
+        if(eaten) {
+            KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
             HRESULT sessionResult;
             auto session = ComPtr<EditSession>::make(
                 pContext,
