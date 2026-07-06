@@ -292,6 +292,34 @@ HPEN CandidateWindow::headerDividerPen() {
     return headerDividerPen_;
 }
 
+HBRUSH CandidateWindow::cachedBrush(COLORREF color) {
+    auto it = itemBrushCache_.find(color);
+    if (it != itemBrushCache_.end())
+        return it->second;
+    HBRUSH br = ::CreateSolidBrush(color);
+    itemBrushCache_[color] = br;
+    return br;
+}
+
+HPEN CandidateWindow::cachedPen(COLORREF color, int width) {
+    DWORD key = (DWORD)((width & 0xFF) << 24) | (color & 0x00FFFFFF);
+    auto it = itemPenCache_.find(key);
+    if (it != itemPenCache_.end())
+        return it->second;
+    HPEN pen = ::CreatePen(PS_SOLID, width, color);
+    itemPenCache_[key] = pen;
+    return pen;
+}
+
+void CandidateWindow::releaseItemGdiCache() {
+    for (auto& kv : itemBrushCache_)
+        ::DeleteObject(kv.second);
+    itemBrushCache_.clear();
+    for (auto& kv : itemPenCache_)
+        ::DeleteObject(kv.second);
+    itemPenCache_.clear();
+}
+
 void CandidateWindow::releaseThemeBrushes() {
     if (panelBgBrush_) {
         ::DeleteObject(panelBgBrush_);
@@ -305,6 +333,7 @@ void CandidateWindow::releaseThemeBrushes() {
         ::DeleteObject(headerDividerPen_);
         headerDividerPen_ = NULL;
     }
+    releaseItemGdiCache();
 }
 
 // ITfUIElement
@@ -467,11 +496,9 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         // draw a flat black border in Windows 8 app immersive mode
         // draw a 3d border in desktop mode
         if(isImmersive()) {
-            HPEN pen = ::CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
-            HGDIOBJ oldPen = ::SelectObject(hDC, pen);
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(RGB(0, 0, 0), 3));
             ::Rectangle(hDC, rc.left, rc.top, rc.right, rc.bottom);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(pen);
         }
         else {
             // draw a 3d border in desktop mode
@@ -524,16 +551,12 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                     COLORREF chipBorder = labelStyle == HeaderLabelBadge
                         ? blendColor(highlightBorder_, chipBg, 35)
                         : blendColor(textSecondary_, panelBg_, 55);
-                    HBRUSH chipBrush = ::CreateSolidBrush(chipBg);
-                    HPEN chipPen = ::CreatePen(PS_SOLID, 1, chipBorder);
-                    HGDIOBJ oldChipBrush = ::SelectObject(hDC, chipBrush);
-                    HGDIOBJ oldChipPen = ::SelectObject(hDC, chipPen);
+                    HGDIOBJ oldChipBrush = ::SelectObject(hDC, cachedBrush(chipBg));
+                    HGDIOBJ oldChipPen = ::SelectObject(hDC, cachedPen(chipBorder));
                     int chipRadius = max(4, min(borderRadius_, (int)(chipRc.bottom - chipRc.top) / 2));
                     ::RoundRect(hDC, chipRc.left, chipRc.top, chipRc.right, chipRc.bottom, chipRadius, chipRadius);
                     ::SelectObject(hDC, oldChipBrush);
                     ::SelectObject(hDC, oldChipPen);
-                    ::DeleteObject(chipBrush);
-                    ::DeleteObject(chipPen);
                     ::SetTextColor(hDC, labelStyle == HeaderLabelBadge
                         ? readableTextOnColor(chipBg, highlightText_, textPrimary_)
                         : headerLabelColor);
@@ -545,9 +568,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                     int barGap = max(3, textMargin_ / 2);
                     int barInset = max(2, textMargin_ / 2);
                     RECT barRc = { labelRect.left, rowTop + barInset, labelRect.left + 2, rowBottom - barInset };
-                    HBRUSH barBrush = ::CreateSolidBrush(headerValueColor);
-                    ::FillRect(hDC, &barRc, barBrush);
-                    ::DeleteObject(barBrush);
+                    ::FillRect(hDC, &barRc, cachedBrush(headerValueColor));
                     ::SetTextColor(hDC, headerLabelColor);
                     RECT barTextRc = { labelRect.left + 2 + barGap, rowTop, labelRect.right, rowBottom };
                     ::DrawTextW(hDC, label.c_str(), (int)label.length(), &barTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -561,13 +582,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                     ::SetTextColor(hDC, headerLabelColor);
                     ::DrawTextW(hDC, label.c_str(), (int)label.length(), &labelRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                     if (labelStyle == HeaderLabelUnderline) {
-                        HPEN underlinePen = ::CreatePen(PS_SOLID, 1, headerValueColor);
-                        HGDIOBJ oldUnderlinePen = ::SelectObject(hDC, underlinePen);
+                        HGDIOBJ oldUnderlinePen = ::SelectObject(hDC, cachedPen(headerValueColor));
                         int underlineY = rowBottom - max(2, textMargin_ / 2);
                         ::MoveToEx(hDC, labelRect.left, underlineY, NULL);
                         ::LineTo(hDC, labelRect.left + labelSize.cx, underlineY);
                         ::SelectObject(hDC, oldUnderlinePen);
-                        ::DeleteObject(underlinePen);
                     }
                 }
 
@@ -621,15 +640,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
             rowRect.bottom = min(rowRect.bottom, rowRect.top + modernCandidateRowHeight());
 
             if (messageStyle_ == MessageStyleBadge) {
-                HBRUSH bgBrush = ::CreateSolidBrush(messageBg);
-                HPEN bgPen = ::CreatePen(PS_SOLID, 1, messageBg);
-                HGDIOBJ oldBrush = ::SelectObject(hDC, bgBrush);
-                HGDIOBJ oldPen = ::SelectObject(hDC, bgPen);
+                HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(messageBg));
+                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(messageBg));
                 ::RoundRect(hDC, rowRect.left, rowRect.top, rowRect.right, rowRect.bottom, max(4, borderRadius_), max(4, borderRadius_));
                 ::SelectObject(hDC, oldBrush);
                 ::SelectObject(hDC, oldPen);
-                ::DeleteObject(bgBrush);
-                ::DeleteObject(bgPen);
 
                 int badgeSize = min(rowRect.bottom - rowRect.top - max(2, textMargin_ / 2), max(18, itemHeight_));
                 RECT badgeRect = {
@@ -638,15 +653,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                     rowRect.left + textMargin_ + badgeSize,
                     rowRect.top + ((rowRect.bottom - rowRect.top) + badgeSize) / 2
                 };
-                HBRUSH badgeBrush = ::CreateSolidBrush(blendColor(accent, panelBg_, 12));
-                HPEN badgePen = ::CreatePen(PS_SOLID, 1, blendColor(accent, panelBg_, 5));
-                oldBrush = ::SelectObject(hDC, badgeBrush);
-                oldPen = ::SelectObject(hDC, badgePen);
+                oldBrush = ::SelectObject(hDC, cachedBrush(blendColor(accent, panelBg_, 12)));
+                oldPen = ::SelectObject(hDC, cachedPen(blendColor(accent, panelBg_, 5)));
                 ::RoundRect(hDC, badgeRect.left, badgeRect.top, badgeRect.right, badgeRect.bottom, max(4, badgeSize / 2), max(4, badgeSize / 2));
                 ::SelectObject(hDC, oldBrush);
                 ::SelectObject(hDC, oldPen);
-                ::DeleteObject(badgeBrush);
-                ::DeleteObject(badgePen);
 
                 COLORREF badgeText = colorContrast(accent, highlightText_) >= 60 ? highlightText_ : panelBg_;
                 ::SetTextColor(hDC, badgeText);
@@ -654,13 +665,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                 messageRect.left = badgeRect.right + textMargin_;
             }
             else if (messageStyle_ == MessageStyleBar) {
-                HPEN barPen = ::CreatePen(PS_SOLID, max(2, textMargin_ / 2), accent);
-                HGDIOBJ oldPen = ::SelectObject(hDC, barPen);
+                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(accent, max(2, textMargin_ / 2)));
                 int barX = rowRect.left + max(1, textMargin_ / 3);
                 ::MoveToEx(hDC, barX, rowRect.top + max(3, textMargin_ / 2), NULL);
                 ::LineTo(hDC, barX, rowRect.bottom - max(3, textMargin_ / 2));
                 ::SelectObject(hDC, oldPen);
-                ::DeleteObject(barPen);
                 messageRect.left += max(10, textMargin_ * 2);
             }
             else {
@@ -671,15 +680,11 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                     rowRect.left + textMargin_ + dotSize,
                     rowRect.top + ((rowRect.bottom - rowRect.top) + dotSize) / 2
                 };
-                HBRUSH dotBrush = ::CreateSolidBrush(accent);
-                HPEN dotPen = ::CreatePen(PS_SOLID, 1, accent);
-                HGDIOBJ oldBrush = ::SelectObject(hDC, dotBrush);
-                HGDIOBJ oldPen = ::SelectObject(hDC, dotPen);
+                HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(accent));
+                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(accent));
                 ::Ellipse(hDC, dotRect.left, dotRect.top, dotRect.right, dotRect.bottom);
                 ::SelectObject(hDC, oldBrush);
                 ::SelectObject(hDC, oldPen);
-                ::DeleteObject(dotBrush);
-                ::DeleteObject(dotPen);
                 messageRect.left = dotRect.right + textMargin_;
             }
             ::SetTextColor(hDC, messageText);
@@ -1017,38 +1022,28 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
         // Fill background of the item
         if (isSelected) {
-            HBRUSH bgBrush = ::CreateSolidBrush(selectedBg);
-            HPEN borderPen = ::CreatePen(PS_SOLID, 1, selectedBorder);
-            HGDIOBJ oldBrush = ::SelectObject(hDC, bgBrush);
-            HGDIOBJ oldPen = ::SelectObject(hDC, borderPen);
-
+            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(selectedBg));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(selectedBorder));
             ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, borderRadius_ * 2, borderRadius_ * 2);
-
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(bgBrush);
-            ::DeleteObject(borderPen);
         }
 
         if (keyStyle_ == KeyStyleLeftTag) {
-            HPEN itemPen = ::CreatePen(PS_SOLID, 1, isSelected ? blendColor(selectedFg, selectedBg, 22) : blendColor(textSecondary_, panelBg_, 82));
-            HGDIOBJ oldPen = ::SelectObject(hDC, itemPen);
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 22) : blendColor(textSecondary_, panelBg_, 82)));
             HGDIOBJ oldBrush = ::SelectObject(hDC, ::GetStockObject(HOLLOW_BRUSH));
             ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, max(4, borderRadius_), max(4, borderRadius_));
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(itemPen);
         }
 
         if (keyStyle_ == KeyStyleRail) {
-            HPEN railPen = ::CreatePen(PS_SOLID, 2, isSelected ? blendColor(selectedFg, selectedBg, 15) : blendColor(textSecondary_, panelBg_, 70));
-            HGDIOBJ oldPen = ::SelectObject(hDC, railPen);
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 15) : blendColor(textSecondary_, panelBg_, 70), 2));
             int railInset = max(4, textMargin_);
             int railX = itemRc.left + max(2, textMargin_ / 2);
             ::MoveToEx(hDC, railX, itemRc.top + railInset, NULL);
             ::LineTo(hDC, railX, itemRc.bottom - railInset);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(railPen);
         }
 
         // Draw selection key
@@ -1084,16 +1079,12 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
                 ::InflateRect(&badgeRc, 0, -max(1, textMargin_ / 2));
                 COLORREF badgeBg = selectedBadgeBg;
                 COLORREF badgeBorder = blendColor(selectedBorder, badgeBg, 28);
-                HBRUSH badgeBrush = ::CreateSolidBrush(badgeBg);
-                HPEN badgePen = ::CreatePen(PS_SOLID, 1, badgeBorder);
-                HGDIOBJ oldBrush = ::SelectObject(hDC, badgeBrush);
-                HGDIOBJ oldPen = ::SelectObject(hDC, badgePen);
+                HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
+                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
                 int badgeRadius = max(3, min(borderRadius_, max(3, (badgeRc.bottom - badgeRc.top) / 2)));
                 ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
                 ::SelectObject(hDC, oldBrush);
                 ::SelectObject(hDC, oldPen);
-                ::DeleteObject(badgeBrush);
-                ::DeleteObject(badgePen);
                 ::SetTextColor(hDC, selectedBadgeFg);
             }
             else {
@@ -1117,16 +1108,12 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
                 ? (isSelected ? blendColor(selectedBorder, badgeBg, 38) : badgeBg)
                 : (isSelected ? blendColor(selectedBorder, badgeBg, 28) : blendColor(textSecondary_, panelBg_, 62));
 
-            HBRUSH badgeBrush = ::CreateSolidBrush(badgeBg);
-            HPEN badgePen = ::CreatePen(PS_SOLID, 1, badgeBorder);
-            HGDIOBJ oldBrush = ::SelectObject(hDC, badgeBrush);
-            HGDIOBJ oldPen = ::SelectObject(hDC, badgePen);
+            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
             int badgeRadius = keyStyle_ == KeyStyleSoftCapsule ? (badgeRc.bottom - badgeRc.top) : max(3, min(borderRadius_, max(3, (badgeRc.bottom - badgeRc.top) / 2)));
             ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(badgeBrush);
-            ::DeleteObject(badgePen);
             ::SetTextColor(hDC, isSelected ? readableTextOnColor(badgeBg, selectedBadgeFg, selectedFg) : keyColor);
             ::DrawTextW(hDC, selKey, 1, &keyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
@@ -1137,15 +1124,12 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
                 keyRc.left + (isSelected ? 5 : 4),
                 keyRc.top + (keyRc.bottom - keyRc.top) / 2 + (isSelected ? 6 : 2)
             };
-            HBRUSH markerBrush = ::CreateSolidBrush(isSelected ? selectedFg : blendColor(highlightBorder_, panelBg_, 20));
-            HPEN markerPen = ::CreatePen(PS_SOLID, 1, isSelected ? selectedFg : blendColor(highlightBorder_, panelBg_, 20));
-            HGDIOBJ oldBrush = ::SelectObject(hDC, markerBrush);
-            HGDIOBJ oldPen = ::SelectObject(hDC, markerPen);
+            COLORREF markerColor = isSelected ? selectedFg : blendColor(highlightBorder_, panelBg_, 20);
+            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(markerColor));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(markerColor));
             ::RoundRect(hDC, markerRc.left, markerRc.top, markerRc.right, markerRc.bottom, 4, 4);
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(markerBrush);
-            ::DeleteObject(markerPen);
             RECT keyTextRc = keyRc;
             keyTextRc.left += 6;
             ::DrawTextW(hDC, selKey, 1, &keyTextRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -1157,15 +1141,11 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
             tabRc.left += 1;
             tabRc.right -= 1;
             COLORREF tabBg = isSelected ? selectedBadgeBg : blendColor(panelBg_, textSecondary_, 11);
-            HBRUSH tabBrush = ::CreateSolidBrush(tabBg);
-            HPEN tabPen = ::CreatePen(PS_SOLID, 1, isSelected ? blendColor(selectedBorder, tabBg, 28) : tabBg);
-            HGDIOBJ oldBrush = ::SelectObject(hDC, tabBrush);
-            HGDIOBJ oldPen = ::SelectObject(hDC, tabPen);
+            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(tabBg));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedBorder, tabBg, 28) : tabBg));
             ::RoundRect(hDC, tabRc.left, tabRc.top, tabRc.right + 1, tabRc.bottom, 4, 4);
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(tabBrush);
-            ::DeleteObject(tabPen);
             ::SetTextColor(hDC, isSelected ? readableTextOnColor(tabBg, selectedBadgeFg, selectedFg) : keyColor);
             ::DrawTextW(hDC, selKey, 1, &tabRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
@@ -1189,15 +1169,13 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
                 keyRc.top += max(2, textMargin_ / 2);
             ::DrawTextW(hDC, selKey, 1, &keyRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
             if (keyStyle_ == KeyStyleDivider) {
-                HPEN dividerPen = ::CreatePen(PS_SOLID, 1, isSelected ? blendColor(selectedFg, selectedBg, 26) : blendColor(panelBorder_, textSecondary_, 35));
-                HGDIOBJ oldPen = ::SelectObject(hDC, dividerPen);
+                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 26) : blendColor(panelBorder_, textSecondary_, 35)));
                 int dividerInset = max(3, textMargin_ / 2);
                 int dividerX = keyRc.right - max(3, textMargin_);
                 dividerX = max(keyRc.left + 1, min(dividerX, keyRc.right - 1));
                 ::MoveToEx(hDC, dividerX, keyRc.top + dividerInset, NULL);
                 ::LineTo(hDC, dividerX, keyRc.bottom - dividerInset);
                 ::SelectObject(hDC, oldPen);
-                ::DeleteObject(dividerPen);
             }
         }
 
@@ -1213,13 +1191,11 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         if (keyStyle_ == KeyStyleWordAnchor) {
             SIZE itemSize;
             ::GetTextExtentPoint32W(hDC, item.c_str(), (int)item.length(), &itemSize);
-            HPEN anchorPen = ::CreatePen(PS_SOLID, 1, isSelected ? blendColor(selectedFg, selectedBg, 20) : blendColor(textSecondary_, panelBg_, 45));
-            HGDIOBJ oldPen = ::SelectObject(hDC, anchorPen);
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 20) : blendColor(textSecondary_, panelBg_, 45)));
             int anchorY = textRc.bottom - max(3, textMargin_ / 2);
             ::MoveToEx(hDC, textRc.left, anchorY, NULL);
             ::LineTo(hDC, min(textRc.left + itemSize.cx, textRc.right), anchorY);
             ::SelectObject(hDC, oldPen);
-            ::DeleteObject(anchorPen);
         }
 
         ::SetTextColor(hDC, oldTextColor);

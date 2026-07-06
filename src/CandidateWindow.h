@@ -323,6 +323,10 @@ private:
     bool wrapToMaxWidth_;
     int maxWidth_;
 
+    HBRUSH cachedBrush(COLORREF color);
+    HPEN cachedPen(COLORREF color, int width = 1);
+    void releaseItemGdiCache();
+
     // paint caches: scaled selection-key font and theme GDI objects are
     // reused across paints instead of being created per item per paint
     HFONT cachedKeyFont_;
@@ -331,6 +335,10 @@ private:
     HBRUSH panelBgBrush_;
     HPEN panelBorderPen_;
     HPEN headerDividerPen_;
+    // Item-level brush/pen caches: keyed by color (brushes) and color|width<<24 (pens).
+    // Entries live until releaseThemeBrushes() clears them on theme change.
+    std::unordered_map<COLORREF, HBRUSH> itemBrushCache_;
+    std::unordered_map<DWORD, HPEN> itemPenCache_;
     int measuredHeaderHeight_; // refreshed by recalculateSize()
     // candidate text extents measured with the current font; IMEs show the
     // same candidates over and over, so skip GetTextExtentPoint32W on hits
