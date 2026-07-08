@@ -20,6 +20,7 @@
 #pragma once
 
 #include <Unknwn.h>
+#include <Windows.h> // for InterlockedIncrement/InterlockedDecrement
 #include <cassert>
 
 namespace Ime {
@@ -51,7 +52,7 @@ public:
 
     virtual ~ComObject() {}
 
-    int refCount() const {
+    LONG refCount() const {
         return refCount_;
     }
 
@@ -75,16 +76,20 @@ public:
     }
 
     STDMETHODIMP_(ULONG) AddRef() {
-        return ++refCount_;
+        // COM requires thread-safe refcounting: this object's IUnknown pointer can be
+        // handed to other apartments/threads (e.g. UI Automation / accessibility
+        // clients), so a plain ++ could race with a concurrent Release() on another
+        // thread and corrupt the count.
+        return static_cast<ULONG>(InterlockedIncrement(&refCount_));
     }
 
     STDMETHODIMP_(ULONG) Release() {
         assert(refCount_ > 0);
-        const ULONG newCount = --refCount_;
-        if (0 == refCount_) {
+        const LONG newCount = InterlockedDecrement(&refCount_);
+        if (0 == newCount) {
             delete this;
         }
-        return newCount;
+        return static_cast<ULONG>(newCount);
     }
 private:
 
@@ -100,7 +105,7 @@ private:
     }
 
 private:
-    int refCount_;
+    LONG refCount_;
 };
 
 } // namespace Ime
