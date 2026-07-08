@@ -646,7 +646,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
                 ::SelectObject(hDC, oldBrush);
                 ::SelectObject(hDC, oldPen);
 
-                int badgeSize = min(rowRect.bottom - rowRect.top - max(2, textMargin_ / 2), max(18, itemHeight_));
+                int badgeSize = min(static_cast<int>(rowRect.bottom - rowRect.top) - max(2, textMargin_ / 2), max(18, itemHeight_));
                 RECT badgeRect = {
                     rowRect.left + textMargin_,
                     rowRect.top + ((rowRect.bottom - rowRect.top) - badgeSize) / 2,
@@ -801,7 +801,7 @@ void CandidateWindow::recalculateSize() {
         SIZE messageSize;
         ::GetTextExtentPoint32W(hDC, message_.c_str(), (int)message_.length(), &messageSize);
         messageWidth = messageSize.cx;
-        messageHeight = max(messageSize.cy, fontLineHeight);
+        messageHeight = max(static_cast<int>(messageSize.cy), fontLineHeight);
     }
 
     ::SelectObject(hDC, oldFont);
@@ -994,7 +994,7 @@ int CandidateWindow::headerHeight(HDC hDC) const {
     if (modernStyle_) {
         TEXTMETRIC textMetrics;
         ::GetTextMetrics(hDC, &textMetrics);
-        textHeight = max(textHeight, textMetrics.tmHeight + textMetrics.tmExternalLeading);
+        textHeight = max(textHeight, static_cast<int>(textMetrics.tmHeight + textMetrics.tmExternalLeading));
         return textHeight + textMargin_ * 2;
     }
     return textHeight + margin_;
@@ -1081,7 +1081,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
                 COLORREF badgeBorder = blendColor(selectedBorder, badgeBg, 28);
                 HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
                 HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
-                int badgeRadius = max(3, min(borderRadius_, max(3, (badgeRc.bottom - badgeRc.top) / 2)));
+                int badgeRadius = max(3, min(borderRadius_, max(3, static_cast<int>(badgeRc.bottom - badgeRc.top) / 2)));
                 ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
                 ::SelectObject(hDC, oldBrush);
                 ::SelectObject(hDC, oldPen);
@@ -1110,7 +1110,8 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
             HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
             HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
-            int badgeRadius = keyStyle_ == KeyStyleSoftCapsule ? (badgeRc.bottom - badgeRc.top) : max(3, min(borderRadius_, max(3, (badgeRc.bottom - badgeRc.top) / 2)));
+            int badgeHeight = static_cast<int>(badgeRc.bottom - badgeRc.top);
+            int badgeRadius = keyStyle_ == KeyStyleSoftCapsule ? badgeHeight : max(3, min(borderRadius_, max(3, badgeHeight / 2)));
             ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
@@ -1172,7 +1173,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
                 HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 26) : blendColor(panelBorder_, textSecondary_, 35)));
                 int dividerInset = max(3, textMargin_ / 2);
                 int dividerX = keyRc.right - max(3, textMargin_);
-                dividerX = max(keyRc.left + 1, min(dividerX, keyRc.right - 1));
+                dividerX = max(static_cast<int>(keyRc.left) + 1, min(dividerX, static_cast<int>(keyRc.right) - 1));
                 ::MoveToEx(hDC, dividerX, keyRc.top + dividerInset, NULL);
                 ::LineTo(hDC, dividerX, keyRc.bottom - dividerInset);
                 ::SelectObject(hDC, oldPen);
