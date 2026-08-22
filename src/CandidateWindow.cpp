@@ -1,4 +1,4 @@
-//
+﻿//
 //    Copyright (C) 2013 - 2020 Hong Jen Yee (PCMan) <pcman.tw@gmail.com>
 //
 //    This library is free software; you can redistribute it and/or
