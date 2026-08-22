@@ -489,8 +489,13 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         ::SelectObject(hDC, oldBrush);
         ::SelectObject(hDC, oldPen);
     } else {
-        SetTextColor(hDC, GetSysColor(COLOR_WINDOWTEXT));
-        SetBkColor(hDC, GetSysColor(COLOR_WINDOW));
+        // Classic style now also uses the theme colors (panelBg_/textPrimary_
+        // etc. were already set correctly by setCandidateTheme(); only the
+        // modernStyle_ branch used to read them). This swaps the hardcoded
+        // system colors for theme colors without touching any of the
+        // layout/sizing logic that caused past crashes.
+        SetTextColor(hDC, textPrimary_);
+        SetBkColor(hDC, panelBg_);
 
         // paint window background and border
         // draw a flat black border in Windows 8 app immersive mode
@@ -502,8 +507,8 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         }
         else {
             // draw a 3d border in desktop mode
-            ::FillSolidRect(ps.hdc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, GetSysColor(COLOR_WINDOW));
-            ::Draw3DBorder(hDC, &rc, GetSysColor(COLOR_3DFACE), 0);
+            ::FillSolidRect(ps.hdc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, panelBg_);
+            ::Draw3DBorder(hDC, &rc, panelBorder_, 0);
         }
     }
 
@@ -631,7 +636,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         };
 
         int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
-        COLORREF oldTextColor = ::SetTextColor(hDC, modernStyle_ ? textPrimary_ : GetSysColor(COLOR_WINDOWTEXT));
+        COLORREF oldTextColor = ::SetTextColor(hDC, textPrimary_);
         if (modernStyle_) {
             COLORREF accent = readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
             COLORREF messageText = colorContrast(panelBg_, accent) >= 62 ? accent : textPrimary_;
@@ -1206,8 +1211,8 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         wchar_t selKey[] = L"?. ";
         selKey[0] = selKeys_[i];
         textRect.right = textRect.left + selKeyWidth_;
-        // FIXME: make the color of strings configurable.
-        COLORREF selKeyColor = RGB(0, 0, 255);
+        // selection key color now follows the theme's highlightBorder_ (was hardcoded blue)
+        COLORREF selKeyColor = highlightBorder_;
         COLORREF oldColor = ::SetTextColor(hDC, selKeyColor);
         // paint the selection key
         ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, selKey, 3, NULL);
