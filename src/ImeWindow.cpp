@@ -24,7 +24,7 @@ namespace Ime {
 ImeWindow::ImeWindow(TextService* service):
     textService_(service) {
 
-    if(service->isImmersive()) { // windows 8 app mode
+    if(service && service->isImmersive()) { // windows 8 app mode
         margin_ = 10;
     }
     else { // desktop mode

@@ -268,6 +268,10 @@ public:
     }
     void seedStableWidth(int px);
 
+    // Draw the whole window into hDC (clientRect = the window's client area).
+    // onPaint() uses it with the BeginPaint DC; tests use it with a memory DC.
+    void paint(HDC hDC, const RECT& clientRect);
+
 protected:
     LRESULT wndProc(UINT msg, WPARAM wp , LPARAM lp);
     void onPaint(WPARAM wp, LPARAM lp);

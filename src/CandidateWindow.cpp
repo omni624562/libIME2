@@ -231,7 +231,7 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     headerDividerPen_(NULL),
     measuredHeaderHeight_(0) {
 
-    if(service->isImmersive()) { // windows 8 app mode
+    if(service && service->isImmersive()) { // windows 8 app mode
         margin_ = 10;
         rowSpacing_ = 8;
         colSpacing_ = 12;
@@ -242,7 +242,9 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
         colSpacing_ = 8;
     }
 
-    HWND parent = service->compositionWindow(session);
+    // service/session are always set in the IME; they are null only when a test
+    // builds the window stand-alone to render it off-screen (see paint()).
+    HWND parent = (service && session) ? service->compositionWindow(session) : NULL;
     create(parent, WS_POPUP|WS_CLIPCHILDREN, WS_EX_TOOLWINDOW|WS_EX_TOPMOST);
 }
 
@@ -464,17 +466,23 @@ LRESULT CandidateWindow::wndProc(UINT msg, WPARAM wp , LPARAM lp) {
 }
 
 void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
-    // TODO: check isImmersive_, and draw the window differently
-    // in Windows 8 app immersive mode to follow windows 8 UX guidelines
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
-    HDC hDC = ps.hdc;
-    HFONT oldFont;
     RECT rc;
+    GetClientRect(hwnd_, &rc);
+    paint(ps.hdc, rc);
+    EndPaint(hwnd_, &ps);
+}
+
+// Separate from onPaint() so the window can also be rendered into a memory DC
+// (off-screen rendering tests), without BeginPaint or a visible window.
+void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
+    // TODO: check isImmersive_, and draw the window differently
+    // in Windows 8 app immersive mode to follow windows 8 UX guidelines
+    HFONT oldFont;
+    RECT rc = clientRect;
 
     oldFont = (HFONT)SelectObject(hDC, font_);
-
-    GetClientRect(hwnd_,&rc);
 
     if (modernStyle_) {
         SetTextColor(hDC, textPrimary_);
@@ -502,7 +510,7 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         }
         else {
             // draw a 3d border in desktop mode
-            ::FillSolidRect(ps.hdc, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, GetSysColor(COLOR_WINDOW));
+            ::FillSolidRect(hDC, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, GetSysColor(COLOR_WINDOW));
             ::Draw3DBorder(hDC, &rc, GetSysColor(COLOR_3DFACE), 0);
         }
     }
@@ -693,7 +701,6 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         ::SetBkMode(hDC, oldBkMode);
         ::SetTextColor(hDC, oldTextColor);
         SelectObject(hDC, oldFont);
-        EndPaint(hwnd_, &ps);
         return;
     }
 
@@ -716,7 +723,6 @@ void CandidateWindow::onPaint(WPARAM wp, LPARAM lp) {
         }
     }
     SelectObject(hDC, oldFont);
-    EndPaint(hwnd_, &ps);
 }
 
 void CandidateWindow::recalculateSize() {

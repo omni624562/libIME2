@@ -35,7 +35,9 @@ public:
     virtual ~ImeWindow(void);
     void move(int x, int y);
     bool isImmersive() {
-        return textService_->isImmersive();
+        // textService_ is null only for windows created without a text service
+        // (off-screen rendering tests); treat those as desktop mode.
+        return textService_ && textService_->isImmersive();
     }
 
     void setFont(HFONT f);
