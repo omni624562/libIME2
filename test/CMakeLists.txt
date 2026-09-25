@@ -14,3 +14,7 @@ target_compile_definitions(CandidateWindow_test PRIVATE UNICODE _UNICODE)
 target_compile_options(CandidateWindow_test PRIVATE /utf-8)
 target_link_libraries(CandidateWindow_test libIME2_static gtest_main gmock_main)
 add_test(NAME CandidateWindow_test COMMAND CandidateWindow_test)
+
+add_executable(KeyEvent_test KeyEvent_test.cpp)
+target_link_libraries(KeyEvent_test libIME2_static gtest_main gmock_main)
+add_test(NAME KeyEvent_test COMMAND KeyEvent_test)
