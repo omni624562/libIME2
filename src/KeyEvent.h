@@ -56,8 +56,9 @@ public:
     }
 
     unsigned char scanCode() const {
-        // bits 16-23
-        return (unsigned char)(lParam_ & 0xff0000);
+        // bits 16-23 (they must be shifted down: casting the masked value to
+        // unsigned char kept only bits 0-7, so this always returned 0)
+        return (unsigned char)((lParam_ >> 16) & 0xff);
     }
 
     bool isExtended() const {
