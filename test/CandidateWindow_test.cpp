@@ -86,14 +86,13 @@ protected:
     static void TearDownTestSuite() { ::DeleteObject(font_); }
 
     // A candidate window like the one 大易 shows: 6 per row, first candidate selected.
-    WindowPtr makeWindow(bool modern, const Theme& theme, const std::wstring& header, const std::wstring& pageInfo) {
+    WindowPtr makeWindow(const Theme& theme, const std::wstring& header, const std::wstring& pageInfo) {
         WindowPtr window(new Ime::CandidateWindow(nullptr, nullptr));
         window->setFont(font_);
         window->setCandPerRow(6);
         window->setTheme(theme.panelBg, theme.panelBorder, theme.textPrimary, theme.textSecondary,
                          theme.highlightBg, theme.highlightBorder, theme.highlightText);
         window->setSpacing(6, 4, 6);
-        window->setModernStyle(modern);
         const wchar_t* items[] = { L"人", L"入", L"八", L"乂", L"亼", L"仌" };
         const wchar_t keys[] = L"123456";
         for (int i = 0; i < 6; ++i)
@@ -153,7 +152,7 @@ HFONT CandidateWindowRenderTest::font_ = NULL;
 
 TEST_F(CandidateWindowRenderTest, ModernStyleFillsPanelWithThemeBackground) {
     for (const Theme* theme : { &kSepiaDim, &kGraphite }) {
-        auto window = makeWindow(true, *theme, L"大易 人", L"1/1");
+        auto window = makeWindow(*theme, L"大易 人", L"1/1");
         Pixels px = render(*window);
         ASSERT_GT(px.width, 0);
         ASSERT_GT(px.height, 0);
@@ -176,8 +175,8 @@ static bool tintBetween(COLORREF c, COLORREF from, COLORREF to) {
 }
 
 TEST_F(CandidateWindowRenderTest, ModernStyleHighlightsCurrentSelectionWithThemeColor) {
-    auto selected = makeWindow(true, kSepiaDim, L"大易 人", L"1/1");
-    auto noCursor = makeWindow(true, kSepiaDim, L"大易 人", L"1/1");
+    auto selected = makeWindow(kSepiaDim, L"大易 人", L"1/1");
+    auto noCursor = makeWindow(kSepiaDim, L"大易 人", L"1/1");
     noCursor->setUseCursor(false);
     Pixels a = render(*selected);
     Pixels b = render(*noCursor);
@@ -198,8 +197,8 @@ TEST_F(CandidateWindowRenderTest, ModernStyleHighlightsCurrentSelectionWithTheme
 }
 
 TEST_F(CandidateWindowRenderTest, HeaderRowIsDrawnAboveTheCandidates) {
-    auto withHeader = makeWindow(true, kSepiaDim, L"大易 人", L"1/1");
-    auto withoutHeader = makeWindow(true, kSepiaDim, L"", L"");
+    auto withHeader = makeWindow(kSepiaDim, L"大易 人", L"1/1");
+    auto withoutHeader = makeWindow(kSepiaDim, L"", L"");
     Pixels a = render(*withHeader);
     Pixels b = render(*withoutHeader);
     ASSERT_GT(a.height, 0);
@@ -212,16 +211,6 @@ TEST_F(CandidateWindowRenderTest, HeaderRowIsDrawnAboveTheCandidates) {
         << "header row is present but empty";
     // Same width rules either way, so the header must not squeeze the candidates.
     EXPECT_GE(a.width, b.width);
-}
-
-TEST_F(CandidateWindowRenderTest, ClassicStyleStillPaintsCandidates) {
-    auto window = makeWindow(false, kSepiaDim, L"", L"");
-    Pixels px = render(*window);
-    ASSERT_GT(px.height, 0);
-    EXPECT_EQ(px.count(kSentinel), 0u) << "classic style left part of the window unpainted";
-    const COLORREF background = ::GetSysColor(COLOR_WINDOW);
-    EXPECT_EQ(px.dominant(), background);
-    EXPECT_GT(px.countOther({ background }, 2, px.height - 2), 50u) << "no candidate text drawn";
 }
 
 }  // namespace

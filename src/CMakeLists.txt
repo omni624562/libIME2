@@ -30,14 +30,10 @@ add_library(libIME2_static STATIC
     ComPtr.h
     ComObject.h
     # GUI-related code
-    DrawUtils.h
-    DrawUtils.cpp
     Window.cpp
     Window.h
     ImeWindow.cpp
     ImeWindow.h
-    MessageWindow.cpp
-    MessageWindow.h
     CandidateWindow.h
     CandidateWindow.cpp
 )

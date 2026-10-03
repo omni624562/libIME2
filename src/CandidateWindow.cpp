@@ -18,7 +18,6 @@
 //
 
 #include "CandidateWindow.h"
-#include "DrawUtils.h"
 #include "TextService.h"
 #include "EditSession.h"
 
@@ -178,11 +177,11 @@ static int candidateMessageExtraWidth(int messageStyle, int textMargin, int item
     }
 }
 
-static void applyCandidateWindowRegion(HWND hwnd, bool modernStyle, int width, int height, int borderRadius) {
+static void applyCandidateWindowRegion(HWND hwnd, int width, int height, int borderRadius) {
     if (!hwnd)
         return;
 
-    if (!modernStyle || borderRadius <= 0 || width <= 0 || height <= 0) {
+    if (borderRadius <= 0 || width <= 0 || height <= 0) {
         ::SetWindowRgn(hwnd, NULL, TRUE);
         return;
     }
@@ -204,7 +203,6 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     hasResult_(false),
     useCursor_(true),
     selKeyWidth_(0),
-    modernStyle_(false),
     panelBg_(RGB(255, 255, 255)),
     panelBorder_(RGB(218, 221, 227)),
     textPrimary_(RGB(32, 36, 42)),
@@ -484,50 +482,29 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
 
     oldFont = (HFONT)SelectObject(hDC, font_);
 
-    if (modernStyle_) {
-        SetTextColor(hDC, textPrimary_);
-        SetBkColor(hDC, panelBg_);
+    SetTextColor(hDC, textPrimary_);
+    SetBkColor(hDC, panelBg_);
 
-        // Draw rounded modern background and border (cached theme objects)
-        HGDIOBJ oldBrush = ::SelectObject(hDC, panelBgBrush());
-        HGDIOBJ oldPen = ::SelectObject(hDC, panelBorderPen());
+    // Draw rounded modern background and border (cached theme objects)
+    HGDIOBJ oldBrush = ::SelectObject(hDC, panelBgBrush());
+    HGDIOBJ oldPen = ::SelectObject(hDC, panelBorderPen());
 
-        ::RoundRect(hDC, rc.left, rc.top, rc.right, rc.bottom, borderRadius_ * 2, borderRadius_ * 2);
+    ::RoundRect(hDC, rc.left, rc.top, rc.right, rc.bottom, borderRadius_ * 2, borderRadius_ * 2);
 
-        ::SelectObject(hDC, oldBrush);
-        ::SelectObject(hDC, oldPen);
-    } else {
-        SetTextColor(hDC, GetSysColor(COLOR_WINDOWTEXT));
-        SetBkColor(hDC, GetSysColor(COLOR_WINDOW));
-
-        // paint window background and border
-        // draw a flat black border in Windows 8 app immersive mode
-        // draw a 3d border in desktop mode
-        if(isImmersive()) {
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(RGB(0, 0, 0), 3));
-            ::Rectangle(hDC, rc.left, rc.top, rc.right, rc.bottom);
-            ::SelectObject(hDC, oldPen);
-        }
-        else {
-            // draw a 3d border in desktop mode
-            ::FillSolidRect(hDC, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, GetSysColor(COLOR_WINDOW));
-            ::Draw3DBorder(hDC, &rc, GetSysColor(COLOR_3DFACE), 0);
-        }
-    }
+    ::SelectObject(hDC, oldBrush);
+    ::SelectObject(hDC, oldPen);
 
     // paint header row (label text left-aligned, page info right-aligned)
     int headerHeight = this->headerHeight(hDC);
     if (!header_.empty() || !pageInfo_.empty()) {
-        COLORREF headerLabelColor = modernStyle_ ? textSecondary_ : RGB(0, 0, 180);
-        COLORREF headerValueColor = modernStyle_ ? readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_) : RGB(0, 0, 180);
+        COLORREF headerLabelColor = textSecondary_;
+        COLORREF headerValueColor = readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
         COLORREF oldColor = ::SetTextColor(hDC, headerLabelColor);
-        if (modernStyle_) {
-            ::SetBkMode(hDC, TRANSPARENT);
-        }
+        ::SetBkMode(hDC, TRANSPARENT);
 
-        int rowTop = modernStyle_ ? 0 : margin_;
-        int rowBottom = modernStyle_ ? headerHeight : rowTop + headerHeight;
-        int pageInfoLeft = rc.right - margin_ - (modernStyle_ ? textMargin_ : 0);
+        int rowTop = 0;
+        int rowBottom = headerHeight;
+        int pageInfoLeft = rc.right - margin_ - textMargin_;
         if (!pageInfo_.empty()) {
             SIZE piSize;
             ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piSize);
@@ -543,12 +520,12 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
                 value = header_.substr(separator + 1);
             }
 
-            int textX = margin_ + (modernStyle_ ? textMargin_ : 0);
+            int textX = margin_ + textMargin_;
             RECT labelRect = { textX, rowTop, pageInfoLeft - textMargin_, rowBottom };
             if (!label.empty()) {
                 SIZE labelSize;
                 ::GetTextExtentPoint32W(hDC, label.c_str(), (int)label.length(), &labelSize);
-                int labelStyle = modernStyle_ ? headerLabelStyle_ : HeaderLabelPlain;
+                int labelStyle = headerLabelStyle_;
                 int advance = labelSize.cx;
 
                 if (labelStyle == HeaderLabelBadge || labelStyle == HeaderLabelTag) {
@@ -615,88 +592,82 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
             ::DrawTextW(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &piRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
 
-        if (modernStyle_) {
-            HGDIOBJ oldPen = ::SelectObject(hDC, headerDividerPen());
-            int dividerY = max(0, headerHeight - 1);
-            ::MoveToEx(hDC, 1, dividerY, NULL);
-            ::LineTo(hDC, rc.right - 1, dividerY);
-            ::SelectObject(hDC, oldPen);
-        }
+        HGDIOBJ oldPen = ::SelectObject(hDC, headerDividerPen());
+        int dividerY = max(0, headerHeight - 1);
+        ::MoveToEx(hDC, 1, dividerY, NULL);
+        ::LineTo(hDC, rc.right - 1, dividerY);
+        ::SelectObject(hDC, oldPen);
 
-        if (modernStyle_) {
-            ::SetBkMode(hDC, OPAQUE);
-        }
+        ::SetBkMode(hDC, OPAQUE);
         ::SetTextColor(hDC, oldColor);
     }
 
     if (!message_.empty()) {
-        int messageTop = modernStyle_ && headerHeight > 0 ? headerHeight + textMargin_ : margin_ + headerHeight;
+        int messageTop = headerHeight > 0 ? headerHeight + textMargin_ : margin_;
         RECT messageRect = {
-            margin_ + (modernStyle_ ? textMargin_ : 0),
+            margin_ + textMargin_,
             messageTop,
-            rc.right - margin_ - (modernStyle_ ? textMargin_ : 0),
+            rc.right - margin_ - textMargin_,
             rc.bottom - margin_
         };
 
         int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
-        COLORREF oldTextColor = ::SetTextColor(hDC, modernStyle_ ? textPrimary_ : GetSysColor(COLOR_WINDOWTEXT));
-        if (modernStyle_) {
-            COLORREF accent = readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
-            COLORREF messageText = colorContrast(panelBg_, accent) >= 62 ? accent : textPrimary_;
-            COLORREF messageBg = colorLuma(panelBg_) > 165 ? blendColor(panelBg_, accent, 8) : blendColor(panelBg_, accent, 13);
-            RECT rowRect = messageRect;
-            rowRect.bottom = min(rowRect.bottom, rowRect.top + modernCandidateRowHeight());
+        COLORREF oldTextColor = ::SetTextColor(hDC, textPrimary_);
+        COLORREF accent = readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
+        COLORREF messageText = colorContrast(panelBg_, accent) >= 62 ? accent : textPrimary_;
+        COLORREF messageBg = colorLuma(panelBg_) > 165 ? blendColor(panelBg_, accent, 8) : blendColor(panelBg_, accent, 13);
+        RECT rowRect = messageRect;
+        rowRect.bottom = min(rowRect.bottom, rowRect.top + modernCandidateRowHeight());
 
-            if (messageStyle_ == MessageStyleBadge) {
-                HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(messageBg));
-                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(messageBg));
-                ::RoundRect(hDC, rowRect.left, rowRect.top, rowRect.right, rowRect.bottom, max(4, borderRadius_), max(4, borderRadius_));
-                ::SelectObject(hDC, oldBrush);
-                ::SelectObject(hDC, oldPen);
+        if (messageStyle_ == MessageStyleBadge) {
+            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(messageBg));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(messageBg));
+            ::RoundRect(hDC, rowRect.left, rowRect.top, rowRect.right, rowRect.bottom, max(4, borderRadius_), max(4, borderRadius_));
+            ::SelectObject(hDC, oldBrush);
+            ::SelectObject(hDC, oldPen);
 
-                int badgeSize = min(static_cast<int>(rowRect.bottom - rowRect.top) - max(2, textMargin_ / 2), max(18, itemHeight_));
-                RECT badgeRect = {
-                    rowRect.left + textMargin_,
-                    rowRect.top + ((rowRect.bottom - rowRect.top) - badgeSize) / 2,
-                    rowRect.left + textMargin_ + badgeSize,
-                    rowRect.top + ((rowRect.bottom - rowRect.top) + badgeSize) / 2
-                };
-                oldBrush = ::SelectObject(hDC, cachedBrush(blendColor(accent, panelBg_, 12)));
-                oldPen = ::SelectObject(hDC, cachedPen(blendColor(accent, panelBg_, 5)));
-                ::RoundRect(hDC, badgeRect.left, badgeRect.top, badgeRect.right, badgeRect.bottom, max(4, badgeSize / 2), max(4, badgeSize / 2));
-                ::SelectObject(hDC, oldBrush);
-                ::SelectObject(hDC, oldPen);
+            int badgeSize = min(static_cast<int>(rowRect.bottom - rowRect.top) - max(2, textMargin_ / 2), max(18, itemHeight_));
+            RECT badgeRect = {
+                rowRect.left + textMargin_,
+                rowRect.top + ((rowRect.bottom - rowRect.top) - badgeSize) / 2,
+                rowRect.left + textMargin_ + badgeSize,
+                rowRect.top + ((rowRect.bottom - rowRect.top) + badgeSize) / 2
+            };
+            oldBrush = ::SelectObject(hDC, cachedBrush(blendColor(accent, panelBg_, 12)));
+            oldPen = ::SelectObject(hDC, cachedPen(blendColor(accent, panelBg_, 5)));
+            ::RoundRect(hDC, badgeRect.left, badgeRect.top, badgeRect.right, badgeRect.bottom, max(4, badgeSize / 2), max(4, badgeSize / 2));
+            ::SelectObject(hDC, oldBrush);
+            ::SelectObject(hDC, oldPen);
 
-                COLORREF badgeText = colorContrast(accent, highlightText_) >= 60 ? highlightText_ : panelBg_;
-                ::SetTextColor(hDC, badgeText);
-                ::DrawTextW(hDC, L"!", 1, &badgeRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                messageRect.left = badgeRect.right + textMargin_;
-            }
-            else if (messageStyle_ == MessageStyleBar) {
-                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(accent, max(2, textMargin_ / 2)));
-                int barX = rowRect.left + max(1, textMargin_ / 3);
-                ::MoveToEx(hDC, barX, rowRect.top + max(3, textMargin_ / 2), NULL);
-                ::LineTo(hDC, barX, rowRect.bottom - max(3, textMargin_ / 2));
-                ::SelectObject(hDC, oldPen);
-                messageRect.left += max(10, textMargin_ * 2);
-            }
-            else {
-                int dotSize = max(6, min(10, itemHeight_ / 2));
-                RECT dotRect = {
-                    rowRect.left + textMargin_,
-                    rowRect.top + ((rowRect.bottom - rowRect.top) - dotSize) / 2,
-                    rowRect.left + textMargin_ + dotSize,
-                    rowRect.top + ((rowRect.bottom - rowRect.top) + dotSize) / 2
-                };
-                HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(accent));
-                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(accent));
-                ::Ellipse(hDC, dotRect.left, dotRect.top, dotRect.right, dotRect.bottom);
-                ::SelectObject(hDC, oldBrush);
-                ::SelectObject(hDC, oldPen);
-                messageRect.left = dotRect.right + textMargin_;
-            }
-            ::SetTextColor(hDC, messageText);
+            COLORREF badgeText = colorContrast(accent, highlightText_) >= 60 ? highlightText_ : panelBg_;
+            ::SetTextColor(hDC, badgeText);
+            ::DrawTextW(hDC, L"!", 1, &badgeRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            messageRect.left = badgeRect.right + textMargin_;
         }
+        else if (messageStyle_ == MessageStyleBar) {
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(accent, max(2, textMargin_ / 2)));
+            int barX = rowRect.left + max(1, textMargin_ / 3);
+            ::MoveToEx(hDC, barX, rowRect.top + max(3, textMargin_ / 2), NULL);
+            ::LineTo(hDC, barX, rowRect.bottom - max(3, textMargin_ / 2));
+            ::SelectObject(hDC, oldPen);
+            messageRect.left += max(10, textMargin_ * 2);
+        }
+        else {
+            int dotSize = max(6, min(10, itemHeight_ / 2));
+            RECT dotRect = {
+                rowRect.left + textMargin_,
+                rowRect.top + ((rowRect.bottom - rowRect.top) - dotSize) / 2,
+                rowRect.left + textMargin_ + dotSize,
+                rowRect.top + ((rowRect.bottom - rowRect.top) + dotSize) / 2
+            };
+            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(accent));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(accent));
+            ::Ellipse(hDC, dotRect.left, dotRect.top, dotRect.right, dotRect.bottom);
+            ::SelectObject(hDC, oldBrush);
+            ::SelectObject(hDC, oldPen);
+            messageRect.left = dotRect.right + textMargin_;
+        }
+        ::SetTextColor(hDC, messageText);
         ::DrawTextW(hDC, message_.c_str(), (int)message_.length(), &messageRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         ::SetBkMode(hDC, oldBkMode);
         ::SetTextColor(hDC, oldTextColor);
@@ -706,9 +677,7 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
 
     // paint items
     int col = 0;
-    int x = margin_, y = margin_ + headerHeight;
-    if (modernStyle_ && headerHeight > 0)
-        y = headerHeight + textMargin_;
+    int x = margin_, y = headerHeight > 0 ? headerHeight + textMargin_ : margin_;
     int columnsPerRow = max(1, effectiveCandPerRow_);
     for(int i = 0, n = items_.size(); i < n; ++i) {
         paintItem(hDC, i, x, y);
@@ -716,21 +685,19 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
         if(col >= columnsPerRow) {
             col = 0;
             x = margin_;
-            y += modernStyle_ ? modernCandidateRowHeight() + rowSpacing_ : itemHeight_ + rowSpacing_;
+            y += modernCandidateRowHeight() + rowSpacing_;
         }
         else {
-            x += colSpacing_ + selKeyWidth_ + textWidth_ + (modernStyle_ ? modernCandidateExtraWidth(keyStyle_, textMargin_) : 0);
+            x += colSpacing_ + selKeyWidth_ + textWidth_ + modernCandidateExtraWidth(keyStyle_, textMargin_);
         }
     }
     SelectObject(hDC, oldFont);
 }
 
 void CandidateWindow::recalculateSize() {
-    if (modernStyle_) {
-        margin_ = contentMargin_;
-        rowSpacing_ = max(0, textMargin_ / 2);
-        colSpacing_ = max(6, textMargin_ + 2);
-    }
+    margin_ = contentMargin_;
+    rowSpacing_ = max(0, textMargin_ / 2);
+    colSpacing_ = max(6, textMargin_ + 2);
 
     HDC hDC = ::GetWindowDC(hwnd());
     int height = 0;
@@ -747,10 +714,9 @@ void CandidateWindow::recalculateSize() {
     for(int i = 0, n = items_.size(); i < n; ++i) {
         SIZE selKeySize;
         int lineHeight = 0;
-        // the selection key string
-        wchar_t selKey[] = L"?. ";
-        selKey[0] = selKeys_[i];
-        ::GetTextExtentPoint32W(hDC, selKey, modernStyle_ ? 1 : 3, &selKeySize);
+        // the selection key
+        wchar_t selKey = selKeys_[i];
+        ::GetTextExtentPoint32W(hDC, &selKey, 1, &selKeySize);
         if(selKeySize.cx > selKeyWidth_)
             selKeyWidth_ = selKeySize.cx;
 
@@ -793,8 +759,7 @@ void CandidateWindow::recalculateSize() {
         ::GetTextExtentPoint32W(hDC, header_.c_str(), (int)header_.length(), &headerSize);
         // header row must fit both the label text and the page-info text
         headerWidth = headerSize.cx + (pageInfoWidth > 0 ? colSpacing_ * 2 + pageInfoWidth : 0);
-        if (modernStyle_)
-            headerWidth += headerLabelExtraWidth(headerLabelStyle_, textMargin_);
+        headerWidth += headerLabelExtraWidth(headerLabelStyle_, textMargin_);
     }
     else if (pageInfoWidth > 0) {
         // page info with no header: size the row to fit the page info alone
@@ -813,18 +778,17 @@ void CandidateWindow::recalculateSize() {
     ::SelectObject(hDC, oldFont);
     ::ReleaseDC(hwnd(), hDC);
 
-    if (modernStyle_)
-        selKeyWidth_ = max(selKeyWidth_, modernCandidateKeyMinWidth(keyStyle_, textMargin_));
+    selKeyWidth_ = max(selKeyWidth_, modernCandidateKeyMinWidth(keyStyle_, textMargin_));
 
-    int extraItemPadding = modernStyle_ ? modernCandidateExtraWidth(keyStyle_, textMargin_) : 0;
+    int extraItemPadding = modernCandidateExtraWidth(keyStyle_, textMargin_);
     int modernRowHeight = modernCandidateRowHeight();
-    int headerGap = modernStyle_ && headerHeight > 0 ? textMargin_ : 0;
-    int topPadding = modernStyle_ ? headerHeight + headerGap : margin_ + headerHeight;
+    int headerGap = headerHeight > 0 ? textMargin_ : 0;
+    int topPadding = headerHeight + headerGap;
     int bottomPadding = margin_;
 
     int itemStride = selKeyWidth_ + textWidth_ + extraItemPadding;
     int effectiveCandPerRow = max(1, candPerRow_);
-    if (modernStyle_ && wrapToMaxWidth_ && maxWidth_ > 0 && itemStride > 0 && !items_.empty()) {
+    if (wrapToMaxWidth_ && maxWidth_ > 0 && itemStride > 0 && !items_.empty()) {
         int contentLimit = max(1, maxWidth_ - margin_ * 2);
         int maxColumns = (contentLimit + colSpacing_) / (itemStride + colSpacing_);
         effectiveCandPerRow = max(1, min(effectiveCandPerRow, maxColumns));
@@ -832,19 +796,15 @@ void CandidateWindow::recalculateSize() {
     effectiveCandPerRow_ = effectiveCandPerRow;
 
     if (!message_.empty()) {
-        int messageRowHeight = modernStyle_ ? messageHeight + textMargin_ * 2 : messageHeight;
-        width = messageWidth + margin_ * 2 + (modernStyle_ ? textMargin_ * 2 : 0);
-        if (modernStyle_)
-            width += candidateMessageExtraWidth(messageStyle_, textMargin_, itemHeight_);
+        int messageRowHeight = messageHeight + textMargin_ * 2;
+        width = messageWidth + margin_ * 2 + textMargin_ * 2;
+        width += candidateMessageExtraWidth(messageStyle_, textMargin_, itemHeight_);
         width = max(width, headerWidth + margin_ * 2);
         height = topPadding + messageRowHeight + bottomPadding;
     }
     else if(items_.empty()) {
         width = headerWidth > 0 ? headerWidth + margin_ * 2 : margin_ * 2;
-        if (modernStyle_ && headerHeight > 0)
-            height = topPadding + modernRowHeight + bottomPadding;
-        else
-            height = headerHeight > 0 ? headerHeight + bottomPadding : margin_ * 2;
+        height = headerHeight > 0 ? topPadding + modernRowHeight + bottomPadding : margin_ * 2;
     }
     else {
         int columnCount = min((int)items_.size(), effectiveCandPerRow_);
@@ -855,13 +815,13 @@ void CandidateWindow::recalculateSize() {
         int rowCount = (int)items_.size() / effectiveCandPerRow_;
         if(items_.size() % effectiveCandPerRow_)
             ++rowCount;
-        height = topPadding + (modernStyle_ ? modernRowHeight : itemHeight_) * rowCount + rowSpacing_ * (rowCount - 1) + bottomPadding;
+        height = topPadding + modernRowHeight * rowCount + rowSpacing_ * (rowCount - 1) + bottomPadding;
     }
-    if (modernStyle_ && wrapToMaxWidth_ && maxWidth_ > 0) {
+    if (wrapToMaxWidth_ && maxWidth_ > 0) {
         int maxWindowWidth = max(maxWidth_, minStableWidth_);
         width = min(width, maxWindowWidth);
     }
-    if (modernStyle_ && stableWidth_) {
+    if (stableWidth_) {
         int minWidth = max(0, minStableWidth_);
         if (stableWidthPx_ < minWidth)
             stableWidthPx_ = minWidth;
@@ -874,7 +834,7 @@ void CandidateWindow::recalculateSize() {
         width = stableWidthPx_;
     }
     resize(width, height);
-    applyCandidateWindowRegion(hwnd_, modernStyle_, width, height, borderRadius_);
+    applyCandidateWindowRegion(hwnd_, width, height, borderRadius_);
 }
 
 void CandidateWindow::setCandPerRow(int n) {
@@ -997,13 +957,10 @@ int CandidateWindow::headerHeight(HDC hDC) const {
         ::GetTextExtentPoint32W(hDC, pageInfo_.c_str(), (int)pageInfo_.length(), &pageInfoSize);
 
     int textHeight = max(headerSize.cy, pageInfoSize.cy);
-    if (modernStyle_) {
-        TEXTMETRIC textMetrics;
-        ::GetTextMetrics(hDC, &textMetrics);
-        textHeight = max(textHeight, static_cast<int>(textMetrics.tmHeight + textMetrics.tmExternalLeading));
-        return textHeight + textMargin_ * 2;
-    }
-    return textHeight + margin_;
+    TEXTMETRIC textMetrics;
+    ::GetTextMetrics(hDC, &textMetrics);
+    textHeight = max(textHeight, static_cast<int>(textMetrics.tmHeight + textMetrics.tmExternalLeading));
+    return textHeight + textMargin_ * 2;
 }
 
 int CandidateWindow::modernCandidateRowHeight() const {
@@ -1011,229 +968,201 @@ int CandidateWindow::modernCandidateRowHeight() const {
 }
 
 void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
-    if (modernStyle_) {
-        RECT itemRc;
-        itemRect(i, itemRc);
-        ::InflateRect(&itemRc, 0, -max(1, textMargin_ / 3));
+    RECT itemRc;
+    itemRect(i, itemRc);
+    ::InflateRect(&itemRc, 0, -max(1, textMargin_ / 3));
 
-        bool isSelected = (useCursor_ && i == currentSel_);
-        COLORREF selectedBg = blendColor(panelBg_, highlightBg_, 28);
-        COLORREF selectedFg = readableTextOnColor(selectedBg, highlightText_, textPrimary_);
-        COLORREF selectedMutedFg = blendColor(selectedFg, selectedBg, 18);
-        COLORREF selectedBadgeBg = blendColor(selectedBg, highlightBg_, colorLuma(panelBg_) > 165 ? 42 : 30);
-        COLORREF selectedBadgeFg = readableTextOnColor(selectedBadgeBg, highlightText_, textPrimary_);
-        COLORREF selectedBorder = colorContrast(selectedBg, highlightBorder_) >= 38
-            ? blendColor(highlightBorder_, selectedBg, 28)
-            : blendColor(selectedFg, selectedBg, 40);
+    bool isSelected = (useCursor_ && i == currentSel_);
+    COLORREF selectedBg = blendColor(panelBg_, highlightBg_, 28);
+    COLORREF selectedFg = readableTextOnColor(selectedBg, highlightText_, textPrimary_);
+    COLORREF selectedMutedFg = blendColor(selectedFg, selectedBg, 18);
+    COLORREF selectedBadgeBg = blendColor(selectedBg, highlightBg_, colorLuma(panelBg_) > 165 ? 42 : 30);
+    COLORREF selectedBadgeFg = readableTextOnColor(selectedBadgeBg, highlightText_, textPrimary_);
+    COLORREF selectedBorder = colorContrast(selectedBg, highlightBorder_) >= 38
+        ? blendColor(highlightBorder_, selectedBg, 28)
+        : blendColor(selectedFg, selectedBg, 40);
 
-        // Fill background of the item
+    // Fill background of the item
+    if (isSelected) {
+        HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(selectedBg));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(selectedBorder));
+        ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, borderRadius_ * 2, borderRadius_ * 2);
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+    }
+
+    if (keyStyle_ == KeyStyleLeftTag) {
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 22) : blendColor(textSecondary_, panelBg_, 82)));
+        HGDIOBJ oldBrush = ::SelectObject(hDC, ::GetStockObject(HOLLOW_BRUSH));
+        ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, max(4, borderRadius_), max(4, borderRadius_));
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+    }
+
+    if (keyStyle_ == KeyStyleRail) {
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 15) : blendColor(textSecondary_, panelBg_, 70), 2));
+        int railInset = max(4, textMargin_);
+        int railX = itemRc.left + max(2, textMargin_ / 2);
+        ::MoveToEx(hDC, railX, itemRc.top + railInset, NULL);
+        ::LineTo(hDC, railX, itemRc.bottom - railInset);
+        ::SelectObject(hDC, oldPen);
+    }
+
+    // Draw selection key
+    wchar_t selKey[] = L"?. ";
+    selKey[0] = selKeys_[i];
+    int textGap = modernCandidateTextGap(keyStyle_, textMargin_);
+    bool wordFirst = keyStyle_ == KeyStyleWordFirst;
+    RECT keyRc = { itemRc.left + textMargin_, itemRc.top, itemRc.left + textMargin_ + selKeyWidth_, itemRc.bottom };
+    RECT textRc = { keyRc.right + textGap, itemRc.top, itemRc.right - textMargin_, itemRc.bottom };
+    if (wordFirst) {
+        textRc.left = itemRc.left + textMargin_;
+        textRc.right = min(itemRc.right - textMargin_ - selKeyWidth_ - textGap, textRc.left + textWidth_);
+        keyRc.left = textRc.right + textGap;
+        keyRc.right = min(itemRc.right - textMargin_, keyRc.left + selKeyWidth_);
+    }
+
+    COLORREF keyColor = isSelected ? selectedFg : textSecondary_;
+    if (keyStyle_ == KeyStyleQuiet || keyStyle_ == KeyStyleWordAnchor)
+        keyColor = isSelected ? selectedMutedFg : blendColor(textSecondary_, panelBg_, 45);
+    else if (keyStyle_ == KeyStyleGlowKey)
+        keyColor = isSelected ? selectedFg : blendColor(textSecondary_, panelBg_, 30);
+    else if (keyStyle_ == KeyStyleWordFirst)
+        keyColor = isSelected ? selectedMutedFg : blendColor(textSecondary_, panelBg_, 38);
+
+    int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
+    COLORREF oldTextColor = ::SetTextColor(hDC, keyColor);
+    HFONT keyFont = scaledKeyFont();
+    HGDIOBJ oldKeyFont = keyFont ? ::SelectObject(hDC, keyFont) : NULL;
+
+    if (keyStyle_ == KeyStyleKeycap) {
         if (isSelected) {
-            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(selectedBg));
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(selectedBorder));
-            ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, borderRadius_ * 2, borderRadius_ * 2);
-            ::SelectObject(hDC, oldBrush);
-            ::SelectObject(hDC, oldPen);
-        }
-
-        if (keyStyle_ == KeyStyleLeftTag) {
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 22) : blendColor(textSecondary_, panelBg_, 82)));
-            HGDIOBJ oldBrush = ::SelectObject(hDC, ::GetStockObject(HOLLOW_BRUSH));
-            ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, max(4, borderRadius_), max(4, borderRadius_));
-            ::SelectObject(hDC, oldBrush);
-            ::SelectObject(hDC, oldPen);
-        }
-
-        if (keyStyle_ == KeyStyleRail) {
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 15) : blendColor(textSecondary_, panelBg_, 70), 2));
-            int railInset = max(4, textMargin_);
-            int railX = itemRc.left + max(2, textMargin_ / 2);
-            ::MoveToEx(hDC, railX, itemRc.top + railInset, NULL);
-            ::LineTo(hDC, railX, itemRc.bottom - railInset);
-            ::SelectObject(hDC, oldPen);
-        }
-
-        // Draw selection key
-        wchar_t selKey[] = L"?. ";
-        selKey[0] = selKeys_[i];
-        int textGap = modernCandidateTextGap(keyStyle_, textMargin_);
-        bool wordFirst = keyStyle_ == KeyStyleWordFirst;
-        RECT keyRc = { itemRc.left + textMargin_, itemRc.top, itemRc.left + textMargin_ + selKeyWidth_, itemRc.bottom };
-        RECT textRc = { keyRc.right + textGap, itemRc.top, itemRc.right - textMargin_, itemRc.bottom };
-        if (wordFirst) {
-            textRc.left = itemRc.left + textMargin_;
-            textRc.right = min(itemRc.right - textMargin_ - selKeyWidth_ - textGap, textRc.left + textWidth_);
-            keyRc.left = textRc.right + textGap;
-            keyRc.right = min(itemRc.right - textMargin_, keyRc.left + selKeyWidth_);
-        }
-
-        COLORREF keyColor = isSelected ? selectedFg : textSecondary_;
-        if (keyStyle_ == KeyStyleQuiet || keyStyle_ == KeyStyleWordAnchor)
-            keyColor = isSelected ? selectedMutedFg : blendColor(textSecondary_, panelBg_, 45);
-        else if (keyStyle_ == KeyStyleGlowKey)
-            keyColor = isSelected ? selectedFg : blendColor(textSecondary_, panelBg_, 30);
-        else if (keyStyle_ == KeyStyleWordFirst)
-            keyColor = isSelected ? selectedMutedFg : blendColor(textSecondary_, panelBg_, 38);
-
-        int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
-        COLORREF oldTextColor = ::SetTextColor(hDC, keyColor);
-        HFONT keyFont = scaledKeyFont();
-        HGDIOBJ oldKeyFont = keyFont ? ::SelectObject(hDC, keyFont) : NULL;
-
-        if (keyStyle_ == KeyStyleKeycap) {
-            if (isSelected) {
-                RECT badgeRc = keyRc;
-                ::InflateRect(&badgeRc, 0, -max(1, textMargin_ / 2));
-                COLORREF badgeBg = selectedBadgeBg;
-                COLORREF badgeBorder = blendColor(selectedBorder, badgeBg, 28);
-                HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
-                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
-                int badgeRadius = max(3, min(borderRadius_, max(3, static_cast<int>(badgeRc.bottom - badgeRc.top) / 2)));
-                ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
-                ::SelectObject(hDC, oldBrush);
-                ::SelectObject(hDC, oldPen);
-                ::SetTextColor(hDC, selectedBadgeFg);
-            }
-            else {
-                ::SetTextColor(hDC, keyColor);
-            }
-            ::DrawTextW(hDC, selKey, 1, &keyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
-        else if (keyStyle_ == KeyStyleBadgeMinimal || keyStyle_ == KeyStyleSoftCapsule || keyStyle_ == KeyStyleLeftTag) {
             RECT badgeRc = keyRc;
-            if (keyStyle_ == KeyStyleLeftTag) {
-                badgeRc.left = itemRc.left + max(1, textMargin_ / 2);
-                badgeRc.right = badgeRc.left + selKeyWidth_;
-                keyRc = badgeRc;
-            }
             ::InflateRect(&badgeRc, 0, -max(1, textMargin_ / 2));
-
-            COLORREF badgeBg = keyStyle_ == KeyStyleSoftCapsule
-                ? (isSelected ? blendColor(selectedBg, highlightBg_, 24) : blendColor(panelBg_, textSecondary_, 10))
-                : (isSelected ? selectedBadgeBg : panelBg_);
-            COLORREF badgeBorder = keyStyle_ == KeyStyleSoftCapsule
-                ? (isSelected ? blendColor(selectedBorder, badgeBg, 38) : badgeBg)
-                : (isSelected ? blendColor(selectedBorder, badgeBg, 28) : blendColor(textSecondary_, panelBg_, 62));
-
+            COLORREF badgeBg = selectedBadgeBg;
+            COLORREF badgeBorder = blendColor(selectedBorder, badgeBg, 28);
             HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
             HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
-            int badgeHeight = static_cast<int>(badgeRc.bottom - badgeRc.top);
-            int badgeRadius = keyStyle_ == KeyStyleSoftCapsule ? badgeHeight : max(3, min(borderRadius_, max(3, badgeHeight / 2)));
+            int badgeRadius = max(3, min(borderRadius_, max(3, static_cast<int>(badgeRc.bottom - badgeRc.top) / 2)));
             ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
-            ::SetTextColor(hDC, isSelected ? readableTextOnColor(badgeBg, selectedBadgeFg, selectedFg) : keyColor);
-            ::DrawTextW(hDC, selKey, 1, &keyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
-        else if (keyStyle_ == KeyStyleAccentDot) {
-            RECT markerRc = {
-                keyRc.left + 1,
-                keyRc.top + (keyRc.bottom - keyRc.top) / 2 - (isSelected ? 5 : 2),
-                keyRc.left + (isSelected ? 5 : 4),
-                keyRc.top + (keyRc.bottom - keyRc.top) / 2 + (isSelected ? 6 : 2)
-            };
-            COLORREF markerColor = isSelected ? selectedFg : blendColor(highlightBorder_, panelBg_, 20);
-            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(markerColor));
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(markerColor));
-            ::RoundRect(hDC, markerRc.left, markerRc.top, markerRc.right, markerRc.bottom, 4, 4);
-            ::SelectObject(hDC, oldBrush);
-            ::SelectObject(hDC, oldPen);
-            RECT keyTextRc = keyRc;
-            keyTextRc.left += 6;
-            ::DrawTextW(hDC, selKey, 1, &keyTextRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
-        else if (keyStyle_ == KeyStyleMicroTab) {
-            RECT tabRc = keyRc;
-            tabRc.top += max(1, textMargin_ / 2);
-            tabRc.bottom = min(tabRc.bottom, tabRc.top + max(11, itemHeight_ / 2));
-            tabRc.left += 1;
-            tabRc.right -= 1;
-            COLORREF tabBg = isSelected ? selectedBadgeBg : blendColor(panelBg_, textSecondary_, 11);
-            HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(tabBg));
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedBorder, tabBg, 28) : tabBg));
-            ::RoundRect(hDC, tabRc.left, tabRc.top, tabRc.right + 1, tabRc.bottom, 4, 4);
-            ::SelectObject(hDC, oldBrush);
-            ::SelectObject(hDC, oldPen);
-            ::SetTextColor(hDC, isSelected ? readableTextOnColor(tabBg, selectedBadgeFg, selectedFg) : keyColor);
-            ::DrawTextW(hDC, selKey, 1, &tabRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            ::SetTextColor(hDC, selectedBadgeFg);
         }
         else {
-            UINT keyFormat = keyStyle_ == KeyStyleDivider ? DT_CENTER : DT_LEFT;
-            if (keyStyle_ == KeyStyleMonospaceSlot)
-                keyFormat = DT_CENTER;
-            UINT keyVerticalFormat = keyStyle_ == KeyStyleWordFirst ? DT_TOP : DT_VCENTER;
-            if (keyStyle_ == KeyStyleGlowKey && isSelected) {
-                COLORREF glowColor = blendColor(selectedFg, selectedBg, 30);
-                ::SetTextColor(hDC, glowColor);
-                RECT glowRc = keyRc;
-                ::OffsetRect(&glowRc, 1, 0);
-                ::DrawTextW(hDC, selKey, 1, &glowRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
-                glowRc = keyRc;
-                ::OffsetRect(&glowRc, -1, 0);
-                ::DrawTextW(hDC, selKey, 1, &glowRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
-                ::SetTextColor(hDC, keyColor);
-            }
-            if (keyStyle_ == KeyStyleWordFirst)
-                keyRc.top += max(2, textMargin_ / 2);
-            ::DrawTextW(hDC, selKey, 1, &keyRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
-            if (keyStyle_ == KeyStyleDivider) {
-                HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 26) : blendColor(panelBorder_, textSecondary_, 35)));
-                int dividerInset = max(3, textMargin_ / 2);
-                int dividerX = keyRc.right - max(3, textMargin_);
-                dividerX = max(static_cast<int>(keyRc.left) + 1, min(dividerX, static_cast<int>(keyRc.right) - 1));
-                ::MoveToEx(hDC, dividerX, keyRc.top + dividerInset, NULL);
-                ::LineTo(hDC, dividerX, keyRc.bottom - dividerInset);
-                ::SelectObject(hDC, oldPen);
-            }
+            ::SetTextColor(hDC, keyColor);
         }
-
-        if (keyFont) {
-            ::SelectObject(hDC, oldKeyFont); // cached font is reused, not deleted
+        ::DrawTextW(hDC, selKey, 1, &keyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    else if (keyStyle_ == KeyStyleBadgeMinimal || keyStyle_ == KeyStyleSoftCapsule || keyStyle_ == KeyStyleLeftTag) {
+        RECT badgeRc = keyRc;
+        if (keyStyle_ == KeyStyleLeftTag) {
+            badgeRc.left = itemRc.left + max(1, textMargin_ / 2);
+            badgeRc.right = badgeRc.left + selKeyWidth_;
+            keyRc = badgeRc;
         }
+        ::InflateRect(&badgeRc, 0, -max(1, textMargin_ / 2));
 
-        // Draw candidate text
-        wstring& item = items_.at(i);
-        COLORREF textColor = isSelected ? selectedFg : textPrimary_;
-        ::SetTextColor(hDC, textColor);
-        ::DrawTextW(hDC, item.c_str(), (int)item.length(), &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        if (keyStyle_ == KeyStyleWordAnchor) {
-            SIZE itemSize;
-            ::GetTextExtentPoint32W(hDC, item.c_str(), (int)item.length(), &itemSize);
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 20) : blendColor(textSecondary_, panelBg_, 45)));
-            int anchorY = textRc.bottom - max(3, textMargin_ / 2);
-            ::MoveToEx(hDC, textRc.left, anchorY, NULL);
-            ::LineTo(hDC, min(textRc.left + itemSize.cx, textRc.right), anchorY);
+        COLORREF badgeBg = keyStyle_ == KeyStyleSoftCapsule
+            ? (isSelected ? blendColor(selectedBg, highlightBg_, 24) : blendColor(panelBg_, textSecondary_, 10))
+            : (isSelected ? selectedBadgeBg : panelBg_);
+        COLORREF badgeBorder = keyStyle_ == KeyStyleSoftCapsule
+            ? (isSelected ? blendColor(selectedBorder, badgeBg, 38) : badgeBg)
+            : (isSelected ? blendColor(selectedBorder, badgeBg, 28) : blendColor(textSecondary_, panelBg_, 62));
+
+        HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
+        int badgeHeight = static_cast<int>(badgeRc.bottom - badgeRc.top);
+        int badgeRadius = keyStyle_ == KeyStyleSoftCapsule ? badgeHeight : max(3, min(borderRadius_, max(3, badgeHeight / 2)));
+        ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+        ::SetTextColor(hDC, isSelected ? readableTextOnColor(badgeBg, selectedBadgeFg, selectedFg) : keyColor);
+        ::DrawTextW(hDC, selKey, 1, &keyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    else if (keyStyle_ == KeyStyleAccentDot) {
+        RECT markerRc = {
+            keyRc.left + 1,
+            keyRc.top + (keyRc.bottom - keyRc.top) / 2 - (isSelected ? 5 : 2),
+            keyRc.left + (isSelected ? 5 : 4),
+            keyRc.top + (keyRc.bottom - keyRc.top) / 2 + (isSelected ? 6 : 2)
+        };
+        COLORREF markerColor = isSelected ? selectedFg : blendColor(highlightBorder_, panelBg_, 20);
+        HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(markerColor));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(markerColor));
+        ::RoundRect(hDC, markerRc.left, markerRc.top, markerRc.right, markerRc.bottom, 4, 4);
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+        RECT keyTextRc = keyRc;
+        keyTextRc.left += 6;
+        ::DrawTextW(hDC, selKey, 1, &keyTextRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    else if (keyStyle_ == KeyStyleMicroTab) {
+        RECT tabRc = keyRc;
+        tabRc.top += max(1, textMargin_ / 2);
+        tabRc.bottom = min(tabRc.bottom, tabRc.top + max(11, itemHeight_ / 2));
+        tabRc.left += 1;
+        tabRc.right -= 1;
+        COLORREF tabBg = isSelected ? selectedBadgeBg : blendColor(panelBg_, textSecondary_, 11);
+        HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(tabBg));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedBorder, tabBg, 28) : tabBg));
+        ::RoundRect(hDC, tabRc.left, tabRc.top, tabRc.right + 1, tabRc.bottom, 4, 4);
+        ::SelectObject(hDC, oldBrush);
+        ::SelectObject(hDC, oldPen);
+        ::SetTextColor(hDC, isSelected ? readableTextOnColor(tabBg, selectedBadgeFg, selectedFg) : keyColor);
+        ::DrawTextW(hDC, selKey, 1, &tabRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    else {
+        UINT keyFormat = keyStyle_ == KeyStyleDivider ? DT_CENTER : DT_LEFT;
+        if (keyStyle_ == KeyStyleMonospaceSlot)
+            keyFormat = DT_CENTER;
+        UINT keyVerticalFormat = keyStyle_ == KeyStyleWordFirst ? DT_TOP : DT_VCENTER;
+        if (keyStyle_ == KeyStyleGlowKey && isSelected) {
+            COLORREF glowColor = blendColor(selectedFg, selectedBg, 30);
+            ::SetTextColor(hDC, glowColor);
+            RECT glowRc = keyRc;
+            ::OffsetRect(&glowRc, 1, 0);
+            ::DrawTextW(hDC, selKey, 1, &glowRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
+            glowRc = keyRc;
+            ::OffsetRect(&glowRc, -1, 0);
+            ::DrawTextW(hDC, selKey, 1, &glowRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
+            ::SetTextColor(hDC, keyColor);
+        }
+        if (keyStyle_ == KeyStyleWordFirst)
+            keyRc.top += max(2, textMargin_ / 2);
+        ::DrawTextW(hDC, selKey, 1, &keyRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
+        if (keyStyle_ == KeyStyleDivider) {
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 26) : blendColor(panelBorder_, textSecondary_, 35)));
+            int dividerInset = max(3, textMargin_ / 2);
+            int dividerX = keyRc.right - max(3, textMargin_);
+            dividerX = max(static_cast<int>(keyRc.left) + 1, min(dividerX, static_cast<int>(keyRc.right) - 1));
+            ::MoveToEx(hDC, dividerX, keyRc.top + dividerInset, NULL);
+            ::LineTo(hDC, dividerX, keyRc.bottom - dividerInset);
             ::SelectObject(hDC, oldPen);
         }
-
-        ::SetTextColor(hDC, oldTextColor);
-        ::SetBkMode(hDC, oldBkMode);
-    } else {
-        RECT textRect = {x, y, 0, y + itemHeight_};
-        wchar_t selKey[] = L"?. ";
-        selKey[0] = selKeys_[i];
-        textRect.right = textRect.left + selKeyWidth_;
-        // FIXME: make the color of strings configurable.
-        COLORREF selKeyColor = RGB(0, 0, 255);
-        COLORREF oldColor = ::SetTextColor(hDC, selKeyColor);
-        // paint the selection key
-        ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, selKey, 3, NULL);
-        ::SetTextColor(hDC, oldColor); // restore text color
-
-        // paint the candidate string
-        wstring& item = items_.at(i);
-        textRect.left += selKeyWidth_;
-        textRect.right = textRect.left + textWidth_;
-        // paint the candidate string
-        ::ExtTextOut(hDC, textRect.left, textRect.top, ETO_OPAQUE, &textRect, item.c_str(), item.length(), NULL);
-
-        if(useCursor_ && i == currentSel_) { // invert the selected item
-            int left = textRect.left; // - selKeyWidth_;
-            int top = textRect.top;
-            int width = textRect.right - left;
-            int height = itemHeight_;
-            ::BitBlt(hDC, left, top, width, itemHeight_, hDC, left, top, NOTSRCCOPY);
-        }
     }
+
+    if (keyFont) {
+        ::SelectObject(hDC, oldKeyFont); // cached font is reused, not deleted
+    }
+
+    // Draw candidate text
+    wstring& item = items_.at(i);
+    COLORREF textColor = isSelected ? selectedFg : textPrimary_;
+    ::SetTextColor(hDC, textColor);
+    ::DrawTextW(hDC, item.c_str(), (int)item.length(), &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    if (keyStyle_ == KeyStyleWordAnchor) {
+        SIZE itemSize;
+        ::GetTextExtentPoint32W(hDC, item.c_str(), (int)item.length(), &itemSize);
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 20) : blendColor(textSecondary_, panelBg_, 45)));
+        int anchorY = textRc.bottom - max(3, textMargin_ / 2);
+        ::MoveToEx(hDC, textRc.left, anchorY, NULL);
+        ::LineTo(hDC, min(textRc.left + itemSize.cx, textRc.right), anchorY);
+        ::SelectObject(hDC, oldPen);
+    }
+
+    ::SetTextColor(hDC, oldTextColor);
+    ::SetBkMode(hDC, oldBkMode);
 }
 
 void CandidateWindow::itemRect(int i, RECT& rect) {
@@ -1241,35 +1170,21 @@ void CandidateWindow::itemRect(int i, RECT& rect) {
     int columnsPerRow = max(1, effectiveCandPerRow_);
     row = i / columnsPerRow;
     col = i % columnsPerRow;
-    if (modernStyle_) {
-        int extraItemPadding = modernCandidateExtraWidth(keyStyle_, textMargin_);
-        rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
+    int extraItemPadding = modernCandidateExtraWidth(keyStyle_, textMargin_);
+    rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_ + extraItemPadding);
 
-        // header height was measured by the last recalculateSize(); content
-        // changes always pass through it before items are hit-tested/painted
-        int headerHeight = 0;
-        if (!header_.empty() || !pageInfo_.empty()) {
-            headerHeight = measuredHeaderHeight_;
-        }
-
-        int headerGap = headerHeight > 0 ? textMargin_ : 0;
-        int rowHeight = modernCandidateRowHeight();
-        rect.top = headerHeight + headerGap + row * (rowHeight + rowSpacing_);
-        rect.right = rect.left + (selKeyWidth_ + textWidth_ + extraItemPadding);
-        rect.bottom = rect.top + rowHeight;
-    } else {
-        rect.left = margin_ + col * (selKeyWidth_ + textWidth_ + colSpacing_);
-
-        // header height was measured by the last recalculateSize()
-        int headerHeight = 0;
-        if (!header_.empty()) {
-            headerHeight = measuredHeaderHeight_;
-        }
-
-        rect.top = margin_ + headerHeight + row * (itemHeight_ + rowSpacing_);
-        rect.right = rect.left + (selKeyWidth_ + textWidth_);
-        rect.bottom = rect.top + itemHeight_;
+    // header height was measured by the last recalculateSize(); content
+    // changes always pass through it before items are hit-tested/painted
+    int headerHeight = 0;
+    if (!header_.empty() || !pageInfo_.empty()) {
+        headerHeight = measuredHeaderHeight_;
     }
+
+    int headerGap = headerHeight > 0 ? textMargin_ : 0;
+    int rowHeight = modernCandidateRowHeight();
+    rect.top = headerHeight + headerGap + row * (rowHeight + rowSpacing_);
+    rect.right = rect.left + (selKeyWidth_ + textWidth_ + extraItemPadding);
+    rect.bottom = rect.top + rowHeight;
 }
 
 
