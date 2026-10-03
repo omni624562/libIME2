@@ -143,14 +143,6 @@ public:
         refresh();
     }
 
-    void setModernStyle(bool modern) {
-        if (modernStyle_ == modern)
-            return;
-        modernStyle_ = modern;
-        recalculateSize();
-        refresh();
-    }
-
     void setTheme(COLORREF panelBg, COLORREF panelBorder, COLORREF textPrimary, COLORREF textSecondary, COLORREF highlightBg, COLORREF highlightBorder, COLORREF highlightText) {
         if (
             panelBg_ == panelBg &&
@@ -307,7 +299,6 @@ private:
     std::wstring header_;
     std::wstring pageInfo_;
 
-    bool modernStyle_;
     COLORREF panelBg_;
     COLORREF panelBorder_;
     COLORREF textPrimary_;
