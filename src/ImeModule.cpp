@@ -331,11 +331,16 @@ HRESULT ImeModule::unregisterServer() {
         categoryMgr->UnregisterCategory(textServiceClsid_, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, textServiceClsid_);
         // UI less mode
         categoryMgr->UnregisterCategory(textServiceClsid_, GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT, textServiceClsid_);
+        categoryMgr->UnregisterCategory(textServiceClsid_, GUID_TFCAT_TIPCAP_UIELEMENTENABLED, textServiceClsid_);
 
         if(::IsWindows8OrGreater()) {
             // Windows 8 support
             categoryMgr->UnregisterCategory(textServiceClsid_, GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT, textServiceClsid_);
-            categoryMgr->RegisterCategory(textServiceClsid_, GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT, textServiceClsid_);
+            // Unregister() above already removed the whole TIP\{clsid} key with its
+            // categories. A RegisterCategory() here would recreate an orphan
+            // TIP\{clsid}\Category key in each registry view on every uninstall
+            // and upgrade.
+            categoryMgr->UnregisterCategory(textServiceClsid_, GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT, textServiceClsid_);
         }
 
         categoryMgr->Release();
