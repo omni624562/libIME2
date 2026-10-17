@@ -19,6 +19,11 @@
 
 #include "ImeWindow.h"
 
+// winuser.h only declares it for WINVER >= 0x0602 (the project targets 0x0600)
+#ifndef EVENT_OBJECT_IME_CHANGE
+#define EVENT_OBJECT_IME_CHANGE 0x8029
+#endif
+
 namespace Ime {
 
 ImeWindow::ImeWindow(TextService* service):
@@ -92,6 +97,10 @@ void ImeWindow::move(int x, int y) {
         return;
     }
     ::MoveWindow(hwnd_, x, y, w, h, TRUE);
+    // IME requirements (light dismiss): raise EVENT_OBJECT_IME_CHANGE when the
+    // IME window moves or changes size
+    if (isVisible())
+        ::NotifyWinEvent(EVENT_OBJECT_IME_CHANGE, hwnd_, OBJID_CLIENT, CHILDID_SELF);
 }
 
 void ImeWindow::setFont(HFONT f) {

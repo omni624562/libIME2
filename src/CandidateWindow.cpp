@@ -29,6 +29,14 @@
 
 using namespace std;
 
+// winuser.h only declares these for WINVER >= 0x0602 (the project targets 0x0600)
+#ifndef EVENT_OBJECT_IME_SHOW
+#define EVENT_OBJECT_IME_SHOW 0x8027
+#endif
+#ifndef EVENT_OBJECT_IME_HIDE
+#define EVENT_OBJECT_IME_HIDE 0x8028
+#endif
+
 namespace Ime {
 
 static COLORREF blendColor(COLORREF a, COLORREF b, int percentB) {
@@ -194,6 +202,9 @@ static void applyCandidateWindowRegion(HWND hwnd, int width, int height, int bor
 
 CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     ImeWindow(service),
+    highContrast_(false),
+    updatedFlags_(TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE),
+    accessibility_(this),
     shown_(false),
     candPerRow_(1),
     effectiveCandPerRow_(1),
@@ -244,9 +255,21 @@ CandidateWindow::CandidateWindow(TextService* service, EditSession* session):
     // builds the window stand-alone to render it off-screen (see paint()).
     HWND parent = (service && session) ? service->compositionWindow(session) : NULL;
     create(parent, WS_POPUP|WS_CLIPCHILDREN, WS_EX_TOOLWINDOW|WS_EX_TOPMOST);
+
+    themeColors_[0] = panelBg_;
+    themeColors_[1] = panelBorder_;
+    themeColors_[2] = textPrimary_;
+    themeColors_[3] = textSecondary_;
+    themeColors_[4] = highlightBg_;
+    themeColors_[5] = highlightBorder_;
+    themeColors_[6] = highlightText_;
+    updateSystemColors();
 }
 
 CandidateWindow::~CandidateWindow(void) {
+    // the window still exists here (Window's destructor destroys it), which
+    // UIA's clean-up for WM_GETOBJECT providers needs
+    accessibility_.disconnect();
     if (cachedKeyFont_)
         ::DeleteObject(cachedKeyFont_);
     releaseThemeBrushes();
@@ -288,7 +311,7 @@ HPEN CandidateWindow::panelBorderPen() {
 
 HPEN CandidateWindow::headerDividerPen() {
     if (!headerDividerPen_)
-        headerDividerPen_ = ::CreatePen(PS_SOLID, 1, blendColor(panelBorder_, panelBg_, 35));
+        headerDividerPen_ = ::CreatePen(PS_SOLID, 1, blend(panelBorder_, panelBg_, 35));
     return headerDividerPen_;
 }
 
@@ -336,12 +359,109 @@ void CandidateWindow::releaseThemeBrushes() {
     releaseItemGdiCache();
 }
 
+COLORREF CandidateWindow::blend(COLORREF a, COLORREF b, int percentB) const {
+    // tints and shades would turn the high-contrast colors into ones the
+    // user did not choose
+    return highContrast_ ? a : blendColor(a, b, percentB);
+}
+
+COLORREF CandidateWindow::readableOn(COLORREF bg, COLORREF preferred, COLORREF alternate) const {
+    if (highContrast_)
+        return bg == highlightBg_ ? highlightText_ : textPrimary_;
+    return readableTextOnColor(bg, preferred, alternate);
+}
+
+COLORREF CandidateWindow::accentTextColor() const {
+    if (highContrast_)
+        return textPrimary_;
+    return readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
+}
+
+void CandidateWindow::applyColors() {
+    COLORREF colors[ThemeColorCount];
+    if (highContrast_) {
+        // the pairs Windows defines for high contrast: window text on window
+        // background, highlight text on highlight background
+        COLORREF window = ::GetSysColor(COLOR_WINDOW);
+        COLORREF windowText = ::GetSysColor(COLOR_WINDOWTEXT);
+        COLORREF highlight = ::GetSysColor(COLOR_HIGHLIGHT);
+        COLORREF highlightText = ::GetSysColor(COLOR_HIGHLIGHTTEXT);
+        colors[0] = window;      // panel background
+        colors[1] = windowText;  // panel border
+        colors[2] = windowText;  // candidate text
+        colors[3] = windowText;  // selection keys, header label (no gray)
+        colors[4] = highlight;   // selected candidate background
+        colors[5] = highlight;   // selected candidate border
+        colors[6] = highlightText;
+    }
+    else {
+        for (int i = 0; i < ThemeColorCount; ++i)
+            colors[i] = themeColors_[i];
+    }
+    COLORREF* targets[ThemeColorCount] = { &panelBg_, &panelBorder_, &textPrimary_, &textSecondary_,
+                                           &highlightBg_, &highlightBorder_, &highlightText_ };
+    bool changed = false;
+    for (int i = 0; i < ThemeColorCount; ++i) {
+        if (*targets[i] != colors[i]) {
+            *targets[i] = colors[i];
+            changed = true;
+        }
+    }
+    if (!changed)
+        return;
+    releaseThemeBrushes();
+    refresh();
+}
+
+void CandidateWindow::setHighContrast(bool on) {
+    highContrast_ = on;
+    applyColors();
+    if (hwnd_)
+        refresh(); // also when only the system colors changed
+}
+
+void CandidateWindow::updateSystemColors() {
+    HIGHCONTRASTW hc = {};
+    hc.cbSize = sizeof(hc);
+    bool on = ::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) &&
+        (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+    setHighContrast(on);
+}
+
+void CandidateWindow::syncAccessibility() {
+    static const std::wstring kDefaultName = L"\x5019\x9078\x5b57"; // "candidates" in Chinese
+    // what the window says besides the candidates: a backend message, or the
+    // header (IME name and the typed roots)
+    const std::wstring& name = !message_.empty() ? message_ : (!header_.empty() ? header_ : kDefaultName);
+    // The selected candidate is announced also without a visible cursor: the
+    // first candidate is then the one the first selection key picks.
+    accessibility_.sync(items_, selKeys_, currentSel_, name, shown_ != FALSE);
+}
+
+HWND CandidateWindow::accessibleHwnd() {
+    return hwnd_;
+}
+
+bool CandidateWindow::accessibleItemRect(int index, RECT* screenRect) {
+    if (!hwnd_ || index < 0 || index >= (int)items_.size())
+        return false;
+    RECT rc;
+    itemRect(index, rc);
+    POINT corners[2] = { { rc.left, rc.top }, { rc.right, rc.bottom } };
+    ::MapWindowPoints(hwnd_, NULL, corners, 2);
+    screenRect->left = corners[0].x;
+    screenRect->top = corners[0].y;
+    screenRect->right = corners[1].x;
+    screenRect->bottom = corners[1].y;
+    return rc.right > rc.left && rc.bottom > rc.top;
+}
+
 // ITfUIElement
 STDMETHODIMP CandidateWindow::GetDescription(BSTR *pbstrDescription) {
     if (!pbstrDescription)
         return E_INVALIDARG;
-    *pbstrDescription = SysAllocString(L"Candidate window~");
-    return S_OK;
+    *pbstrDescription = SysAllocString(L"Candidate window");
+    return *pbstrDescription ? S_OK : E_OUTOFMEMORY;
 }
 
 // {BD7CCC94-57CD-41D3-A789-AF47890CEB29}
@@ -358,6 +478,12 @@ STDMETHODIMP CandidateWindow::Show(BOOL bShow) {
         show();
     else
         hide();
+    // light-dismiss surfaces and assistive technology track IME windows
+    // through these (IME requirements: "IME candidate window interaction with
+    // light dismiss surfaces"); NotifyWinEvent is cheap without listeners
+    if (hwnd_)
+        ::NotifyWinEvent(shown_ ? EVENT_OBJECT_IME_SHOW : EVENT_OBJECT_IME_HIDE, hwnd_, OBJID_CLIENT, CHILDID_SELF);
+    syncAccessibility();
     return S_OK;
 }
 
@@ -372,8 +498,10 @@ STDMETHODIMP CandidateWindow::IsShown(BOOL *pbShow) {
 STDMETHODIMP CandidateWindow::GetUpdatedFlags(DWORD *pdwFlags) {
     if (!pdwFlags)
         return E_INVALIDARG;
-    /// XXX update all!!!
-    *pdwFlags = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+    // what changed since the last UpdateUIElement (all bits the first time,
+    // as the UILess mode overview requires); the IME resets it after each
+    // UpdateUIElement with resetUpdatedFlags()
+    *pdwFlags = updatedFlags_;
     return S_OK;
 }
 
@@ -389,14 +517,18 @@ STDMETHODIMP CandidateWindow::GetDocumentMgr(ITfDocumentMgr **ppdim) {
 STDMETHODIMP CandidateWindow::GetCount(UINT *puCount) {
     if (!puCount)
         return E_INVALIDARG;
-    *puCount = std::min<UINT>(10, items_.size());
+    // the window holds exactly the current page of the backend's list
+    *puCount = static_cast<UINT>(items_.size());
     return S_OK;
 }
 
 STDMETHODIMP CandidateWindow::GetSelection(UINT *puIndex) {
-    assert(currentSel_ >= 0);
     if (!puIndex)
         return E_INVALIDARG;
+    *puIndex = 0;
+    // S_FALSE: "the candidate list does not have a selection" (no cursor shown)
+    if (!useCursor_ || currentSel_ < 0 || currentSel_ >= (int)items_.size())
+        return S_FALSE;
     *puIndex = static_cast<UINT>(currentSel_);
     return S_OK;
 }
@@ -406,8 +538,8 @@ STDMETHODIMP CandidateWindow::GetString(UINT uIndex, BSTR *pbstr) {
         return E_INVALIDARG;
     if (uIndex >= items_.size())
         return E_INVALIDARG;
-    *pbstr = SysAllocString(items_[uIndex].c_str());
-    return S_OK;
+    *pbstr = SysAllocStringLen(items_[uIndex].c_str(), static_cast<UINT>(items_[uIndex].length()));
+    return *pbstr ? S_OK : E_OUTOFMEMORY;
 }
 
 STDMETHODIMP CandidateWindow::GetPageIndex(UINT *puIndex, UINT uSize, UINT *puPageCnt) {
@@ -425,8 +557,9 @@ STDMETHODIMP CandidateWindow::GetPageIndex(UINT *puIndex, UINT uSize, UINT *puPa
 }
 
 STDMETHODIMP CandidateWindow::SetPageIndex(UINT *puIndex, UINT uPageCnt) {
-    /// XXX Do not let app set page indices.
-    if (!puIndex)
+    // The list is a single page (the backend pages it); the only layout an
+    // application can ask for is that one page starting at 0.
+    if (!puIndex || uPageCnt != 1 || puIndex[0] != 0)
         return E_INVALIDARG;
     return S_OK;
 }
@@ -457,6 +590,25 @@ LRESULT CandidateWindow::wndProc(UINT msg, WPARAM wp , LPARAM lp) {
             break;
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
+        case WM_GETOBJECT: {
+            // UI Automation (screen readers); the provider is created here,
+            // on the first request, not with the window
+            LRESULT result = 0;
+            if (accessibility_.handleGetObject(wp, lp, &result))
+                return result;
+            return Window::wndProc(msg, wp, lp);
+        }
+        case WM_SYSCOLORCHANGE:
+        case WM_THEMECHANGED:
+            updateSystemColors();
+            return Window::wndProc(msg, wp, lp);
+        case WM_SETTINGCHANGE:
+            if (wp == SPI_SETHIGHCONTRAST)
+                updateSystemColors();
+            return Window::wndProc(msg, wp, lp);
+        case WM_DESTROY:
+            accessibility_.disconnect();
+            return Window::wndProc(msg, wp, lp);
         default:
             return Window::wndProc(msg, wp, lp);
     }
@@ -498,7 +650,7 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
     int headerHeight = this->headerHeight(hDC);
     if (!header_.empty() || !pageInfo_.empty()) {
         COLORREF headerLabelColor = textSecondary_;
-        COLORREF headerValueColor = readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
+        COLORREF headerValueColor = accentTextColor();
         COLORREF oldColor = ::SetTextColor(hDC, headerLabelColor);
         ::SetBkMode(hDC, TRANSPARENT);
 
@@ -532,10 +684,10 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
                     int padX = max(3, textMargin_ / 2 + 1);
                     int padY = max(1, textMargin_ / 3);
                     RECT chipRc = { labelRect.left, rowTop + padY, labelRect.left + labelSize.cx + padX * 2, rowBottom - padY };
-                    COLORREF chipBg = labelStyle == HeaderLabelBadge ? blendColor(panelBg_, highlightBg_, 26) : panelBg_;
+                    COLORREF chipBg = labelStyle == HeaderLabelBadge ? blend(panelBg_, highlightBg_, 26) : panelBg_;
                     COLORREF chipBorder = labelStyle == HeaderLabelBadge
-                        ? blendColor(highlightBorder_, chipBg, 35)
-                        : blendColor(textSecondary_, panelBg_, 55);
+                        ? blend(highlightBorder_, chipBg, 35)
+                        : blend(textSecondary_, panelBg_, 55);
                     HGDIOBJ oldChipBrush = ::SelectObject(hDC, cachedBrush(chipBg));
                     HGDIOBJ oldChipPen = ::SelectObject(hDC, cachedPen(chipBorder));
                     int chipRadius = max(4, min(borderRadius_, (int)(chipRc.bottom - chipRc.top) / 2));
@@ -543,7 +695,7 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
                     ::SelectObject(hDC, oldChipBrush);
                     ::SelectObject(hDC, oldChipPen);
                     ::SetTextColor(hDC, labelStyle == HeaderLabelBadge
-                        ? readableTextOnColor(chipBg, highlightText_, textPrimary_)
+                        ? readableOn(chipBg, highlightText_, textPrimary_)
                         : headerLabelColor);
                     RECT chipTextRc = { chipRc.left + padX, rowTop, chipRc.left + padX + labelSize.cx, rowBottom };
                     ::DrawTextW(hDC, label.c_str(), (int)label.length(), &chipTextRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -613,9 +765,9 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
 
         int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
         COLORREF oldTextColor = ::SetTextColor(hDC, textPrimary_);
-        COLORREF accent = readableHeaderValueColor(panelBg_, textPrimary_, highlightBg_, highlightText_);
+        COLORREF accent = accentTextColor();
         COLORREF messageText = colorContrast(panelBg_, accent) >= 62 ? accent : textPrimary_;
-        COLORREF messageBg = colorLuma(panelBg_) > 165 ? blendColor(panelBg_, accent, 8) : blendColor(panelBg_, accent, 13);
+        COLORREF messageBg = colorLuma(panelBg_) > 165 ? blend(panelBg_, accent, 8) : blend(panelBg_, accent, 13);
         RECT rowRect = messageRect;
         rowRect.bottom = min(rowRect.bottom, rowRect.top + modernCandidateRowHeight());
 
@@ -633,13 +785,13 @@ void CandidateWindow::paint(HDC hDC, const RECT& clientRect) {
                 rowRect.left + textMargin_ + badgeSize,
                 rowRect.top + ((rowRect.bottom - rowRect.top) + badgeSize) / 2
             };
-            oldBrush = ::SelectObject(hDC, cachedBrush(blendColor(accent, panelBg_, 12)));
-            oldPen = ::SelectObject(hDC, cachedPen(blendColor(accent, panelBg_, 5)));
+            oldBrush = ::SelectObject(hDC, cachedBrush(blend(accent, panelBg_, 12)));
+            oldPen = ::SelectObject(hDC, cachedPen(blend(accent, panelBg_, 5)));
             ::RoundRect(hDC, badgeRect.left, badgeRect.top, badgeRect.right, badgeRect.bottom, max(4, badgeSize / 2), max(4, badgeSize / 2));
             ::SelectObject(hDC, oldBrush);
             ::SelectObject(hDC, oldPen);
 
-            COLORREF badgeText = colorContrast(accent, highlightText_) >= 60 ? highlightText_ : panelBg_;
+            COLORREF badgeText = (!highContrast_ && colorContrast(accent, highlightText_) >= 60) ? highlightText_ : panelBg_;
             ::SetTextColor(hDC, badgeText);
             ::DrawTextW(hDC, L"!", 1, &badgeRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             messageRect.left = badgeRect.right + textMargin_;
@@ -881,6 +1033,8 @@ bool CandidateWindow::filterKeyEvent(KeyEvent& keyEvent) {
         itemRect(currentSel_, newRect);
         ::UnionRect(&unionRect, &oldRect, &newRect);
         ::InvalidateRect(hwnd_, &unionRect, FALSE);
+        updatedFlags_ |= TF_CLUIE_SELECTION;
+        syncAccessibility();
         return true;
     }
     return false;
@@ -891,6 +1045,7 @@ void CandidateWindow::setCurrentSel(int sel) {
         sel = 0;
     if (currentSel_ != sel) {
         currentSel_ = sel;
+        updatedFlags_ |= TF_CLUIE_SELECTION;
         if (isVisible())
             ::InvalidateRect(hwnd_, NULL, FALSE); // onPaint repaints the full background
     }
@@ -902,12 +1057,14 @@ void CandidateWindow::clear() {
     message_.clear();
     currentSel_ = 0;
     hasResult_ = false;
+    updatedFlags_ |= TF_CLUIE_STRING | TF_CLUIE_COUNT | TF_CLUIE_SELECTION;
 }
 
 void CandidateWindow::setUseCursor(bool use) {
     if (useCursor_ == use)
         return;
     useCursor_ = use;
+    updatedFlags_ |= TF_CLUIE_SELECTION; // GetSelection() turns S_OK / S_FALSE
     if(isVisible())
         ::InvalidateRect(hwnd_, NULL, TRUE);
 }
@@ -973,14 +1130,15 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     ::InflateRect(&itemRc, 0, -max(1, textMargin_ / 3));
 
     bool isSelected = (useCursor_ && i == currentSel_);
-    COLORREF selectedBg = blendColor(panelBg_, highlightBg_, 28);
-    COLORREF selectedFg = readableTextOnColor(selectedBg, highlightText_, textPrimary_);
-    COLORREF selectedMutedFg = blendColor(selectedFg, selectedBg, 18);
-    COLORREF selectedBadgeBg = blendColor(selectedBg, highlightBg_, colorLuma(panelBg_) > 165 ? 42 : 30);
-    COLORREF selectedBadgeFg = readableTextOnColor(selectedBadgeBg, highlightText_, textPrimary_);
-    COLORREF selectedBorder = colorContrast(selectedBg, highlightBorder_) >= 38
-        ? blendColor(highlightBorder_, selectedBg, 28)
-        : blendColor(selectedFg, selectedBg, 40);
+    // high contrast: the system highlight colors, exactly
+    COLORREF selectedBg = highContrast_ ? highlightBg_ : blend(panelBg_, highlightBg_, 28);
+    COLORREF selectedFg = readableOn(selectedBg, highlightText_, textPrimary_);
+    COLORREF selectedMutedFg = blend(selectedFg, selectedBg, 18);
+    COLORREF selectedBadgeBg = blend(selectedBg, highlightBg_, colorLuma(panelBg_) > 165 ? 42 : 30);
+    COLORREF selectedBadgeFg = readableOn(selectedBadgeBg, highlightText_, textPrimary_);
+    COLORREF selectedBorder = highContrast_ ? highlightBg_ : colorContrast(selectedBg, highlightBorder_) >= 38
+        ? blend(highlightBorder_, selectedBg, 28)
+        : blend(selectedFg, selectedBg, 40);
 
     // Fill background of the item
     if (isSelected) {
@@ -992,7 +1150,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     }
 
     if (keyStyle_ == KeyStyleLeftTag) {
-        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 22) : blendColor(textSecondary_, panelBg_, 82)));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blend(selectedFg, selectedBg, 22) : blend(textSecondary_, panelBg_, 82)));
         HGDIOBJ oldBrush = ::SelectObject(hDC, ::GetStockObject(HOLLOW_BRUSH));
         ::RoundRect(hDC, itemRc.left, itemRc.top, itemRc.right, itemRc.bottom, max(4, borderRadius_), max(4, borderRadius_));
         ::SelectObject(hDC, oldBrush);
@@ -1000,7 +1158,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     }
 
     if (keyStyle_ == KeyStyleRail) {
-        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 15) : blendColor(textSecondary_, panelBg_, 70), 2));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blend(selectedFg, selectedBg, 15) : blend(textSecondary_, panelBg_, 70), 2));
         int railInset = max(4, textMargin_);
         int railX = itemRc.left + max(2, textMargin_ / 2);
         ::MoveToEx(hDC, railX, itemRc.top + railInset, NULL);
@@ -1024,11 +1182,11 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
 
     COLORREF keyColor = isSelected ? selectedFg : textSecondary_;
     if (keyStyle_ == KeyStyleQuiet || keyStyle_ == KeyStyleWordAnchor)
-        keyColor = isSelected ? selectedMutedFg : blendColor(textSecondary_, panelBg_, 45);
+        keyColor = isSelected ? selectedMutedFg : blend(textSecondary_, panelBg_, 45);
     else if (keyStyle_ == KeyStyleGlowKey)
-        keyColor = isSelected ? selectedFg : blendColor(textSecondary_, panelBg_, 30);
+        keyColor = isSelected ? selectedFg : blend(textSecondary_, panelBg_, 30);
     else if (keyStyle_ == KeyStyleWordFirst)
-        keyColor = isSelected ? selectedMutedFg : blendColor(textSecondary_, panelBg_, 38);
+        keyColor = isSelected ? selectedMutedFg : blend(textSecondary_, panelBg_, 38);
 
     int oldBkMode = ::SetBkMode(hDC, TRANSPARENT);
     COLORREF oldTextColor = ::SetTextColor(hDC, keyColor);
@@ -1040,7 +1198,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
             RECT badgeRc = keyRc;
             ::InflateRect(&badgeRc, 0, -max(1, textMargin_ / 2));
             COLORREF badgeBg = selectedBadgeBg;
-            COLORREF badgeBorder = blendColor(selectedBorder, badgeBg, 28);
+            COLORREF badgeBorder = blend(selectedBorder, badgeBg, 28);
             HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
             HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
             int badgeRadius = max(3, min(borderRadius_, max(3, static_cast<int>(badgeRc.bottom - badgeRc.top) / 2)));
@@ -1064,11 +1222,11 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         ::InflateRect(&badgeRc, 0, -max(1, textMargin_ / 2));
 
         COLORREF badgeBg = keyStyle_ == KeyStyleSoftCapsule
-            ? (isSelected ? blendColor(selectedBg, highlightBg_, 24) : blendColor(panelBg_, textSecondary_, 10))
+            ? (isSelected ? blend(selectedBg, highlightBg_, 24) : blend(panelBg_, textSecondary_, 10))
             : (isSelected ? selectedBadgeBg : panelBg_);
         COLORREF badgeBorder = keyStyle_ == KeyStyleSoftCapsule
-            ? (isSelected ? blendColor(selectedBorder, badgeBg, 38) : badgeBg)
-            : (isSelected ? blendColor(selectedBorder, badgeBg, 28) : blendColor(textSecondary_, panelBg_, 62));
+            ? (isSelected ? blend(selectedBorder, badgeBg, 38) : badgeBg)
+            : (isSelected ? blend(selectedBorder, badgeBg, 28) : blend(textSecondary_, panelBg_, 62));
 
         HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(badgeBg));
         HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(badgeBorder));
@@ -1077,7 +1235,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         ::RoundRect(hDC, badgeRc.left, badgeRc.top, badgeRc.right + 1, badgeRc.bottom, badgeRadius, badgeRadius);
         ::SelectObject(hDC, oldBrush);
         ::SelectObject(hDC, oldPen);
-        ::SetTextColor(hDC, isSelected ? readableTextOnColor(badgeBg, selectedBadgeFg, selectedFg) : keyColor);
+        ::SetTextColor(hDC, isSelected ? readableOn(badgeBg, selectedBadgeFg, selectedFg) : keyColor);
         ::DrawTextW(hDC, selKey, 1, &keyRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
     else if (keyStyle_ == KeyStyleAccentDot) {
@@ -1087,7 +1245,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
             keyRc.left + (isSelected ? 5 : 4),
             keyRc.top + (keyRc.bottom - keyRc.top) / 2 + (isSelected ? 6 : 2)
         };
-        COLORREF markerColor = isSelected ? selectedFg : blendColor(highlightBorder_, panelBg_, 20);
+        COLORREF markerColor = isSelected ? selectedFg : blend(highlightBorder_, panelBg_, 20);
         HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(markerColor));
         HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(markerColor));
         ::RoundRect(hDC, markerRc.left, markerRc.top, markerRc.right, markerRc.bottom, 4, 4);
@@ -1103,13 +1261,13 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
         tabRc.bottom = min(tabRc.bottom, tabRc.top + max(11, itemHeight_ / 2));
         tabRc.left += 1;
         tabRc.right -= 1;
-        COLORREF tabBg = isSelected ? selectedBadgeBg : blendColor(panelBg_, textSecondary_, 11);
+        COLORREF tabBg = isSelected ? selectedBadgeBg : blend(panelBg_, textSecondary_, 11);
         HGDIOBJ oldBrush = ::SelectObject(hDC, cachedBrush(tabBg));
-        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedBorder, tabBg, 28) : tabBg));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blend(selectedBorder, tabBg, 28) : tabBg));
         ::RoundRect(hDC, tabRc.left, tabRc.top, tabRc.right + 1, tabRc.bottom, 4, 4);
         ::SelectObject(hDC, oldBrush);
         ::SelectObject(hDC, oldPen);
-        ::SetTextColor(hDC, isSelected ? readableTextOnColor(tabBg, selectedBadgeFg, selectedFg) : keyColor);
+        ::SetTextColor(hDC, isSelected ? readableOn(tabBg, selectedBadgeFg, selectedFg) : keyColor);
         ::DrawTextW(hDC, selKey, 1, &tabRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
     else {
@@ -1118,7 +1276,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
             keyFormat = DT_CENTER;
         UINT keyVerticalFormat = keyStyle_ == KeyStyleWordFirst ? DT_TOP : DT_VCENTER;
         if (keyStyle_ == KeyStyleGlowKey && isSelected) {
-            COLORREF glowColor = blendColor(selectedFg, selectedBg, 30);
+            COLORREF glowColor = blend(selectedFg, selectedBg, 30);
             ::SetTextColor(hDC, glowColor);
             RECT glowRc = keyRc;
             ::OffsetRect(&glowRc, 1, 0);
@@ -1132,7 +1290,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
             keyRc.top += max(2, textMargin_ / 2);
         ::DrawTextW(hDC, selKey, 1, &keyRc, keyFormat | keyVerticalFormat | DT_SINGLELINE);
         if (keyStyle_ == KeyStyleDivider) {
-            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 26) : blendColor(panelBorder_, textSecondary_, 35)));
+            HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blend(selectedFg, selectedBg, 26) : blend(panelBorder_, textSecondary_, 35)));
             int dividerInset = max(3, textMargin_ / 2);
             int dividerX = keyRc.right - max(3, textMargin_);
             dividerX = max(static_cast<int>(keyRc.left) + 1, min(dividerX, static_cast<int>(keyRc.right) - 1));
@@ -1154,7 +1312,7 @@ void CandidateWindow::paintItem(HDC hDC, int i,  int x, int y) {
     if (keyStyle_ == KeyStyleWordAnchor) {
         SIZE itemSize;
         ::GetTextExtentPoint32W(hDC, item.c_str(), (int)item.length(), &itemSize);
-        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blendColor(selectedFg, selectedBg, 20) : blendColor(textSecondary_, panelBg_, 45)));
+        HGDIOBJ oldPen = ::SelectObject(hDC, cachedPen(isSelected ? blend(selectedFg, selectedBg, 20) : blend(textSecondary_, panelBg_, 45)));
         int anchorY = textRc.bottom - max(3, textMargin_ / 2);
         ::MoveToEx(hDC, textRc.left, anchorY, NULL);
         ::LineTo(hDC, min(textRc.left + itemSize.cx, textRc.right), anchorY);

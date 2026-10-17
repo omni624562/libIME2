@@ -213,4 +213,81 @@ TEST_F(CandidateWindowRenderTest, HeaderRowIsDrawnAboveTheCandidates) {
     EXPECT_GE(a.width, b.width);
 }
 
+
+// --- Windows high-contrast themes -------------------------------------------
+
+struct SystemColors {
+    COLORREF window = ::GetSysColor(COLOR_WINDOW);
+    COLORREF windowText = ::GetSysColor(COLOR_WINDOWTEXT);
+    COLORREF highlight = ::GetSysColor(COLOR_HIGHLIGHT);
+    COLORREF highlightText = ::GetSysColor(COLOR_HIGHLIGHTTEXT);
+};
+
+// In high contrast every pixel must be one of the four system colors the user
+// chose (or a corner the rounded region leaves unpainted): no theme color, no
+// tint, no blend - whatever key / header / message style is configured.
+TEST_F(CandidateWindowRenderTest, HighContrastPaintsOnlySystemColors) {
+    SystemColors sys;
+    for (int keyStyle = Ime::CandidateWindow::KeyStyleKeycap; keyStyle <= Ime::CandidateWindow::KeyStyleWordAnchor; ++keyStyle) {
+        for (int headerStyle = Ime::CandidateWindow::HeaderLabelPlain; headerStyle <= Ime::CandidateWindow::HeaderLabelUnderline; ++headerStyle) {
+            auto window = makeWindow(kSepiaDim, L"大易 人", L"1/2");
+            window->setKeyStyle(keyStyle);
+            window->setHeaderLabelStyle(headerStyle);
+            window->setHighContrast(true);
+            ASSERT_TRUE(window->highContrast());
+            Pixels px = render(*window);
+            ASSERT_GT(px.width, 0);
+            size_t foreign = px.countOther({ sys.window, sys.windowText, sys.highlight, sys.highlightText, kSentinel }, 0, px.height);
+            EXPECT_EQ(foreign, 0u) << "key style " << keyStyle << ", header style " << headerStyle
+                                   << ": colors other than the system's were painted";
+            EXPECT_EQ(px.dominant(), sys.window);
+            // the selected candidate sits on the system highlight
+            EXPECT_GT(px.count(sys.highlight), 200u) << "key style " << keyStyle;
+            // and the text is drawn (window text on window, at least the other candidates)
+            EXPECT_GT(px.count(sys.windowText), 50u) << "key style " << keyStyle;
+        }
+    }
+}
+
+TEST_F(CandidateWindowRenderTest, HighContrastMessageUsesSystemColors) {
+    SystemColors sys;
+    for (int messageStyle = Ime::CandidateWindow::MessageStyleBadge; messageStyle <= Ime::CandidateWindow::MessageStyleDot; ++messageStyle) {
+        auto window = makeWindow(kGraphite, L"大易 人", L"");
+        window->setMessageStyle(messageStyle);
+        window->setMessage(L"正在載入輸入法碼表");
+        window->setHighContrast(true);
+        Pixels px = render(*window);
+        ASSERT_GT(px.width, 0);
+        EXPECT_EQ(px.countOther({ sys.window, sys.windowText, sys.highlight, sys.highlightText, kSentinel }, 0, px.height), 0u)
+            << "message style " << messageStyle;
+        EXPECT_GT(px.count(sys.windowText), 50u) << "message text missing, style " << messageStyle;
+    }
+}
+
+TEST_F(CandidateWindowRenderTest, LeavingHighContrastRestoresTheTheme) {
+    auto window = makeWindow(kSepiaDim, L"大易 人", L"1/1");
+    window->setHighContrast(true);
+    Pixels hc = render(*window);
+    EXPECT_EQ(hc.count(kSepiaDim.panelBg), 0u);
+    window->setHighContrast(false);
+    Pixels themed = render(*window);
+    EXPECT_EQ(themed.dominant(), kSepiaDim.panelBg);
+    // a theme set while high contrast is on is kept for later, not painted
+    window->setHighContrast(true);
+    window->setTheme(kGraphite.panelBg, kGraphite.panelBorder, kGraphite.textPrimary, kGraphite.textSecondary,
+                     kGraphite.highlightBg, kGraphite.highlightBorder, kGraphite.highlightText);
+    EXPECT_EQ(render(*window).count(kGraphite.panelBg), 0u);
+    window->setHighContrast(false);
+    EXPECT_EQ(render(*window).dominant(), kGraphite.panelBg);
+}
+
+// The window follows the system setting it reads on creation.
+TEST_F(CandidateWindowRenderTest, HighContrastFollowsSystemSetting) {
+    HIGHCONTRASTW hc = {};
+    hc.cbSize = sizeof(hc);
+    ASSERT_TRUE(::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0));
+    auto window = makeWindow(kSepiaDim, L"", L"");
+    EXPECT_EQ(window->highContrast(), (hc.dwFlags & HCF_HIGHCONTRASTON) != 0);
+}
+
 }  // namespace

@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <vector>
 #include "ComObject.h"
+#include "CandidateAccessibility.h"
 
 namespace Ime {
 
@@ -35,7 +36,8 @@ class KeyEvent;
 // TODO: make the candidate window looks different in immersive mode
 class CandidateWindow:
     public ImeWindow,
-    public ComObject<ComInterface<ITfCandidateListUIElement>> {
+    public ComObject<ComInterface<ITfCandidateListUIElement>>,
+    private CandidateAccessibleGeometry {
 public:
     CandidateWindow(TextService* service, EditSession* session);
 
@@ -74,8 +76,10 @@ public:
     void setItems(const std::vector<std::wstring>& items, const std::vector<wchar_t>& selKeys) {
         items_ = items;
         selKeys_ = selKeys;
+        updatedFlags_ |= TF_CLUIE_STRING | TF_CLUIE_COUNT | TF_CLUIE_SELECTION;
         recalculateSize();
         refresh();
+        syncAccessibility();
     }
 
     void setTextRows(const std::wstring& message, const std::wstring& header, const std::wstring& pageInfo) {
@@ -87,6 +91,7 @@ public:
     void add(std::wstring item, wchar_t selKey) {
         items_.push_back(item);
         selKeys_.push_back(selKey);
+        updatedFlags_ |= TF_CLUIE_STRING | TF_CLUIE_COUNT;
     }
 
     void clear();
@@ -143,26 +148,44 @@ public:
         refresh();
     }
 
+    // WIME's theme colors. While a Windows high-contrast theme is active they
+    // are kept but not used: the window paints with the system colors instead.
     void setTheme(COLORREF panelBg, COLORREF panelBorder, COLORREF textPrimary, COLORREF textSecondary, COLORREF highlightBg, COLORREF highlightBorder, COLORREF highlightText) {
-        if (
-            panelBg_ == panelBg &&
-            panelBorder_ == panelBorder &&
-            textPrimary_ == textPrimary &&
-            textSecondary_ == textSecondary &&
-            highlightBg_ == highlightBg &&
-            highlightBorder_ == highlightBorder &&
-            highlightText_ == highlightText
-        )
+        const COLORREF theme[ThemeColorCount] = { panelBg, panelBorder, textPrimary, textSecondary, highlightBg, highlightBorder, highlightText };
+        bool same = true;
+        for (int i = 0; i < ThemeColorCount; ++i)
+            same = same && themeColors_[i] == theme[i];
+        if (same)
             return;
-        panelBg_ = panelBg;
-        panelBorder_ = panelBorder;
-        textPrimary_ = textPrimary;
-        textSecondary_ = textSecondary;
-        highlightBg_ = highlightBg;
-        highlightBorder_ = highlightBorder;
-        highlightText_ = highlightText;
-        releaseThemeBrushes();
-        refresh();
+        for (int i = 0; i < ThemeColorCount; ++i)
+            themeColors_[i] = theme[i];
+        applyColors();
+    }
+
+    // High contrast: true while the window paints with the system colors
+    // (COLOR_WINDOW, COLOR_WINDOWTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT).
+    bool highContrast() const {
+        return highContrast_;
+    }
+    // Re-reads SPI_GETHIGHCONTRAST and the system colors (done on creation and
+    // when Windows broadcasts a color / theme / high-contrast change).
+    void updateSystemColors();
+    // Forces high-contrast painting on or off (tests).
+    void setHighContrast(bool on);
+
+    // Assistive technology: call after a batch of changes (items, selection,
+    // header/message, visibility) so screen readers get UI Automation events.
+    // Cheap when nothing changed or no client listens.
+    void syncAccessibility();
+    // the UIA side of the window (tests)
+    CandidateAccessibility& accessibility() {
+        return accessibility_;
+    }
+
+    // ITfCandidateListUIElement::GetUpdatedFlags reports what changed since the
+    // last UpdateUIElement; call this after each ITfUIElementMgr::UpdateUIElement.
+    void resetUpdatedFlags() {
+        updatedFlags_ = 0;
     }
 
     // shadows ImeWindow::setFont: the base deletes the old HFONT, so cached
@@ -276,11 +299,28 @@ protected:
     HPEN panelBorderPen();
     HPEN headerDividerPen();
     void releaseThemeBrushes();
+    // copies the theme or, in high contrast, the system colors into the
+    // colors used for painting
+    void applyColors();
+    // color helpers that keep the system colors exact in high contrast
+    COLORREF blend(COLORREF a, COLORREF b, int percentB) const;
+    COLORREF readableOn(COLORREF bg, COLORREF preferred, COLORREF alternate) const;
+    COLORREF accentTextColor() const;
+
+    // CandidateAccessibleGeometry
+    HWND accessibleHwnd() override;
+    bool accessibleItemRect(int index, RECT* screenRect) override;
 
 protected: // COM object should not be deleted directly. calling Release() instead.
     ~CandidateWindow(void);
 
 private:
+    enum { ThemeColorCount = 7 };
+    COLORREF themeColors_[ThemeColorCount]; // as set by setTheme()
+    bool highContrast_;
+    DWORD updatedFlags_; // TF_CLUIE_* changed since the last UpdateUIElement
+    CandidateAccessibility accessibility_;
+
     BOOL shown_;
 
     int selKeyWidth_;
