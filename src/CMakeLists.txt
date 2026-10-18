@@ -36,8 +36,12 @@ add_library(libIME2_static STATIC
     ImeWindow.h
     CandidateWindow.h
     CandidateWindow.cpp
+    CandidateAccessibility.h
+    CandidateAccessibility.cpp
 )
 
+# UIAutomationCore.dll is loaded at run time (CandidateAccessibility.cpp), not imported
 target_link_libraries(libIME2_static
     shlwapi.lib
+    oleaut32.lib
 )
