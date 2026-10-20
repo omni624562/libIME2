@@ -73,9 +73,14 @@ public:
         refresh();
     }
 
+    // One selection key per item, as add() keeps them: recalculateSize() and
+    // paintItem() index selKeys_ by item. Items without a key are not shown and
+    // keys without an item are dropped (like PIMETextService::updateCandidates);
+    // more items than keys used to read past selKeys_ (found by test/fuzz).
     void setItems(const std::vector<std::wstring>& items, const std::vector<wchar_t>& selKeys) {
-        items_ = items;
-        selKeys_ = selKeys;
+        size_t count = items.size() < selKeys.size() ? items.size() : selKeys.size();
+        items_.assign(items.begin(), items.begin() + count);
+        selKeys_.assign(selKeys.begin(), selKeys.begin() + count);
         updatedFlags_ |= TF_CLUIE_STRING | TF_CLUIE_COUNT | TF_CLUIE_SELECTION;
         recalculateSize();
         refresh();
