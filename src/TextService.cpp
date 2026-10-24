@@ -723,114 +723,159 @@ STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
 }
 
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
-    if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
+    // no C++ exception may leave a COM method (see EditSession::DoEditSession)
+    try {
+        if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
+            *pfEaten = FALSE;
+            filterDownCacheValid_ = false;
+        }
+        else {
+            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
+            bool result = filterKeyDown(keyEvent);
+            *pfEaten = (BOOL)result;
+            filterDownWParam_ = wParam;
+            filterDownLParam_ = lParam;
+            filterDownResult_ = result;
+            filterDownCacheValid_ = true;
+        }
+    }
+    catch (...) {
         *pfEaten = FALSE;
         filterDownCacheValid_ = false;
-    }
-    else {
-        KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-        bool result = filterKeyDown(keyEvent);
-        *pfEaten = (BOOL)result;
-        filterDownWParam_ = wParam;
-        filterDownLParam_ = lParam;
-        filterDownResult_ = result;
-        filterDownCacheValid_ = true;
     }
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
-    // Some applications do not trigger OnTestKeyDown()
-    // So we need to test it again here! Windows TSF sucks!
-    if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
-        *pfEaten = FALSE;
-        filterDownCacheValid_ = false;
-    }
-    else {
-        bool eaten;
-        if (filterDownCacheValid_ && filterDownWParam_ == wParam && filterDownLParam_ == lParam) {
-            eaten = filterDownResult_;
+    // no C++ exception may leave a COM method (see EditSession::DoEditSession)
+    try {
+        // Some applications do not trigger OnTestKeyDown()
+        // So we need to test it again here! Windows TSF sucks!
+        if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
+            *pfEaten = FALSE;
+            filterDownCacheValid_ = false;
         }
         else {
-            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-            eaten = filterKeyDown(keyEvent);
-        }
-        filterDownCacheValid_ = false;
-        *pfEaten = (BOOL)eaten;
-        if(eaten) { // we want to eat the key
-            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-            HRESULT sessionResult;
-            // ask TSF for an edit session. If editing is approved by TSF,
-            // KeyEditSession::DoEditSession will be called, which in turns
-            // call back to TextService::doKeyEditSession().
-            // So the real key handling is relayed to TextService::doKeyEditSession().
-            auto session = ComPtr<EditSession>::make(
-                pContext,
-                [&](EditSession* session, TfEditCookie cookie) {
-                    *pfEaten = onKeyDown(keyEvent, session);
+            bool eaten;
+            if (filterDownCacheValid_ && filterDownWParam_ == wParam && filterDownLParam_ == lParam) {
+                eaten = filterDownResult_;
+            }
+            else {
+                KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
+                eaten = filterKeyDown(keyEvent);
+            }
+            filterDownCacheValid_ = false;
+            *pfEaten = (BOOL)eaten;
+            if(eaten) { // we want to eat the key
+                KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
+                HRESULT sessionResult;
+                bool ran = false;
+                // ask TSF for an edit session. If editing is approved by TSF,
+                // KeyEditSession::DoEditSession will be called, which in turns
+                // call back to TextService::doKeyEditSession().
+                // So the real key handling is relayed to TextService::doKeyEditSession().
+                auto session = ComPtr<EditSession>::make(
+                    pContext,
+                    [&](EditSession* session, TfEditCookie cookie) {
+                        ran = true;
+                        *pfEaten = onKeyDown(keyEvent, session);
+                    }
+                );
+                // We use TF_ES_SYNC here, so the request becomes synchronus and blocking.
+                // KeyEditSession::DoEditSession() and TextService::doKeyEditSession() will be
+                // called before RequestEditSession() returns.
+                pContext->RequestEditSession(clientId_, session, TF_ES_SYNC|TF_ES_READWRITE, &sessionResult);
+                if (!ran) {
+                    // TSF refused the edit session: the key reaches the app instead of vanishing
+                    *pfEaten = FALSE;
                 }
-            );
-            // We use TF_ES_SYNC here, so the request becomes synchronus and blocking.
-            // KeyEditSession::DoEditSession() and TextService::doKeyEditSession() will be
-            // called before RequestEditSession() returns.
-            pContext->RequestEditSession(clientId_, session, TF_ES_SYNC|TF_ES_READWRITE, &sessionResult);
+            }
         }
+    }
+    catch (...) {
+        *pfEaten = FALSE;
+        filterDownCacheValid_ = false;
     }
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnTestKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
-    if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
+    // no C++ exception may leave a COM method (see EditSession::DoEditSession)
+    try {
+        if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
+            *pfEaten = FALSE;
+            filterUpCacheValid_ = false;
+        }
+        else {
+            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
+            bool result = filterKeyUp(keyEvent);
+            *pfEaten = (BOOL)result;
+            filterUpWParam_ = wParam;
+            filterUpLParam_ = lParam;
+            filterUpResult_ = result;
+            filterUpCacheValid_ = true;
+        }
+    }
+    catch (...) {
         *pfEaten = FALSE;
         filterUpCacheValid_ = false;
-    }
-    else {
-        KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
-        bool result = filterKeyUp(keyEvent);
-        *pfEaten = (BOOL)result;
-        filterUpWParam_ = wParam;
-        filterUpLParam_ = lParam;
-        filterUpResult_ = result;
-        filterUpCacheValid_ = true;
     }
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnKeyUp(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
-    // Some applications do not trigger OnTestKeyDown()
-    // So we need to test it again here! Windows TSF sucks!
-    if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
-        *pfEaten = FALSE;
-        filterUpCacheValid_ = false;
-    }
-    else {
-        bool eaten;
-        if (filterUpCacheValid_ && filterUpWParam_ == wParam && filterUpLParam_ == lParam) {
-            eaten = filterUpResult_;
+    // no C++ exception may leave a COM method (see EditSession::DoEditSession)
+    try {
+        // Some applications do not trigger OnTestKeyDown()
+        // So we need to test it again here! Windows TSF sucks!
+        if (isKeyboardDisabled(pContext) || !isKeyboardOpened()) {
+            *pfEaten = FALSE;
+            filterUpCacheValid_ = false;
         }
         else {
-            KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
-            eaten = filterKeyUp(keyEvent);
-        }
-        filterUpCacheValid_ = false;
-        *pfEaten = (BOOL)eaten;
-        if(eaten) {
-            KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
-            HRESULT sessionResult;
-            auto session = ComPtr<EditSession>::make(
-                pContext,
-                [&](EditSession* session, TfEditCookie cookie) {
-                    *pfEaten = onKeyUp(keyEvent, session);
+            bool eaten;
+            if (filterUpCacheValid_ && filterUpWParam_ == wParam && filterUpLParam_ == lParam) {
+                eaten = filterUpResult_;
+            }
+            else {
+                KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
+                eaten = filterKeyUp(keyEvent);
+            }
+            filterUpCacheValid_ = false;
+            *pfEaten = (BOOL)eaten;
+            if(eaten) {
+                KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
+                HRESULT sessionResult;
+                bool ran = false;
+                auto session = ComPtr<EditSession>::make(
+                    pContext,
+                    [&](EditSession* session, TfEditCookie cookie) {
+                        ran = true;
+                        *pfEaten = onKeyUp(keyEvent, session);
+                    }
+                );
+                pContext->RequestEditSession(clientId_, session, TF_ES_SYNC|TF_ES_READWRITE, &sessionResult);
+                if (!ran) {
+                    // TSF refused the edit session: the key reaches the app instead of vanishing
+                    *pfEaten = FALSE;
                 }
-            );
-            pContext->RequestEditSession(clientId_, session, TF_ES_SYNC|TF_ES_READWRITE, &sessionResult);
+            }
         }
+    }
+    catch (...) {
+        *pfEaten = FALSE;
+        filterUpCacheValid_ = false;
     }
     return S_OK;
 }
 
 STDMETHODIMP TextService::OnPreservedKey(ITfContext *pContext, REFGUID rguid, BOOL *pfEaten) {
-    *pfEaten = (BOOL)onPreservedKey(rguid);
+    try {
+        *pfEaten = (BOOL)onPreservedKey(rguid);
+    }
+    catch (...) {
+        *pfEaten = FALSE;
+    }
     return S_OK;
 }
 
