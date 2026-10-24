@@ -36,7 +36,13 @@ EditSession::~EditSession(void) {
 
 STDMETHODIMP EditSession::DoEditSession(TfEditCookie ec) {
     editCookie_ = ec;
-    callback_(this, ec);
+    // An exception must not leave this COM method: it would end the app the
+    // user is typing in. What the callback did up to the throw stays done.
+    try {
+        callback_(this, ec);
+    }
+    catch (...) {
+    }
     editCookie_ = 0;
     return S_OK;
 }
