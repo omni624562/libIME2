@@ -807,7 +807,7 @@ STDMETHODIMP TextService::OnTestKeyUp(ITfContext *pContext, WPARAM wParam, LPARA
             filterUpCacheValid_ = false;
         }
         else {
-            KeyEvent keyEvent(WM_KEYDOWN, wParam, lParam);
+            KeyEvent keyEvent(WM_KEYUP, wParam, lParam);
             bool result = filterKeyUp(keyEvent);
             *pfEaten = (BOOL)result;
             filterUpWParam_ = wParam;
