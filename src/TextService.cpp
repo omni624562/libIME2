@@ -18,6 +18,7 @@
 //
 
 #include "TextService.h"
+#include "ComGuard.h"
 #include "EditSession.h"
 #include "CandidateWindow.h"
 #include "LangBarButton.h"
@@ -596,6 +597,7 @@ void TextService::deactivateLanguageButtons() {
 
 // ITfTextInputProcessor
 STDMETHODIMP TextService::Activate(ITfThreadMgr *pThreadMgr, TfClientId tfClientId) {
+    IME_COM_GUARD_BEGIN
     // store tsf manager & client id
     threadMgr_ = pThreadMgr;
     clientId_ = tfClientId;
@@ -611,9 +613,11 @@ STDMETHODIMP TextService::Activate(ITfThreadMgr *pThreadMgr, TfClientId tfClient
 
     onActivate();
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP TextService::Deactivate() {
+    IME_COM_GUARD_BEGIN
     // terminate composition properly
     if(isComposing()) {
         if(auto context = currentContext()) {
@@ -630,21 +634,28 @@ STDMETHODIMP TextService::Deactivate() {
     clientId_ = TF_CLIENTID_NULL;
     activateFlags_ = 0;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 // ITfTextInputProcessorEx
 STDMETHODIMP TextService::ActivateEx(ITfThreadMgr *ptim, TfClientId tid, DWORD dwFlags) {
+    IME_COM_GUARD_BEGIN
     Activate(ptim, tid);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 // ITfDisplayAttributeProvider
 STDMETHODIMP TextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum) {
+    IME_COM_GUARD_BEGIN
     return displayAttributeProvider_->EnumDisplayAttributeInfo(ppEnum);
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP TextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) {
+    IME_COM_GUARD_BEGIN
     return displayAttributeProvider_->GetDisplayAttributeInfo(guid, ppInfo);
+    IME_COM_GUARD_END
 }
 
 // ITfThreadMgrEventSink
@@ -671,6 +682,7 @@ STDMETHODIMP TextService::OnPopContext(ITfContext *pContext) {
 
 // ITfTextEditSink
 STDMETHODIMP TextService::OnEndEdit(ITfContext *pContext, TfEditCookie ecReadOnly, ITfEditRecord *pEditRecord) {
+    IME_COM_GUARD_BEGIN
     // This method is called by the TSF whenever an edit operation ends.
     // It's possible for a document to have multiple composition strings at the
     // same time and it's possible for other text services to edit the same
@@ -708,11 +720,13 @@ STDMETHODIMP TextService::OnEndEdit(ITfContext *pContext, TfEditCookie ecReadOnl
     }
 
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 
 // ITfKeyEventSink
 STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
+    IME_COM_GUARD_BEGIN
     if (fForeground) {
         onSetFocus();
     }
@@ -720,6 +734,7 @@ STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
         onKillFocus();
     }
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lParam, BOOL *pfEaten) {
@@ -882,6 +897,7 @@ STDMETHODIMP TextService::OnPreservedKey(ITfContext *pContext, REFGUID rguid, BO
 
 // ITfCompositionSink
 STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition *pComposition) {
+    IME_COM_GUARD_BEGIN
     // This is called by TSF when our composition is terminated by others.
     // For example, when the user click on another text editor and the input focus is 
     // grabbed by others, we're ``forced'' to terminate current composition.
@@ -890,10 +906,12 @@ STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfCompo
     onCompositionTerminated(true);
     composition_ = nullptr;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 // ITfCompartmentEventSink
 STDMETHODIMP TextService::OnChange(REFGUID rguid) {
+    IME_COM_GUARD_BEGIN
     // The TSF ITfCompartment is kind of key-value storage
     // It uses GUIDs as keys and stores integer and string values.
     // Global compartment is a storage for cross-process key-value pairs.
@@ -908,6 +926,7 @@ STDMETHODIMP TextService::OnChange(REFGUID rguid) {
 
     onCompartmentChanged(rguid);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 // ITfLangBarEventSink 
@@ -928,8 +947,10 @@ STDMETHODIMP TextService::OnModalInput(DWORD dwThreadId, UINT uMsg, WPARAM wPara
 }
 
 STDMETHODIMP TextService::ShowFloating(DWORD dwFlags) {
+    IME_COM_GUARD_BEGIN
     onLangBarStatusChanged(dwFlags);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP TextService::GetItemFloatingRect(DWORD dwThreadId, REFGUID rguid, RECT *prc) {
@@ -939,6 +960,7 @@ STDMETHODIMP TextService::GetItemFloatingRect(DWORD dwThreadId, REFGUID rguid, R
 
 // ITfActiveLanguageProfileNotifySink
 STDMETHODIMP TextService::OnActivated(REFCLSID clsid, REFGUID guidProfile, BOOL fActivated) {
+    IME_COM_GUARD_BEGIN
     // we only support one text service, so clsid must be the same as that of our text service.
     // otherwise it's not the notification for our text service, just ignore the event.
     if(clsid == module_->textServiceClsid()) {
@@ -950,6 +972,7 @@ STDMETHODIMP TextService::OnActivated(REFCLSID clsid, REFGUID guidProfile, BOOL 
         }
     }
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 ComPtr<ITfContext> TextService::currentContext() const {

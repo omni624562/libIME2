@@ -18,6 +18,7 @@
 //
 
 #include "LangBarButton.h"
+#include "ComGuard.h"
 #include "TextService.h"
 #include "ImeModule.h"
 #include <OleCtl.h>
@@ -191,13 +192,17 @@ void LangBarButton::setStyle(DWORD style) {
 
 // ITfLangBarItem
 STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO *pInfo) {
+    IME_COM_GUARD_BEGIN
     *pInfo = info_;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::GetStatus(DWORD *pdwStatus) {
+    IME_COM_GUARD_BEGIN
     *pdwStatus = status_;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::Show(BOOL fShow) {
@@ -205,45 +210,58 @@ STDMETHODIMP LangBarButton::Show(BOOL fShow) {
 }
 
 STDMETHODIMP LangBarButton::GetTooltipString(BSTR *pbstrToolTip) {
+    IME_COM_GUARD_BEGIN
     *pbstrToolTip = ::SysAllocString(tooltip_.c_str());
     return *pbstrToolTip ? S_OK : E_FAIL;
+    IME_COM_GUARD_END
 }
 
 // ITfLangBarItemButton
 STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT *prcArea) {
+    IME_COM_GUARD_BEGIN
     auto type = click == TF_LBI_CLK_RIGHT ? TextService::COMMAND_RIGHT_CLICK : TextService::COMMAND_LEFT_CLICK;
     textService_->onCommand(commandId_, type);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::InitMenu(ITfMenu *pMenu) {
+    IME_COM_GUARD_BEGIN
     if (!menu_) {
         return E_FAIL;
     }
     buildITfMenu(pMenu, menu_);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::OnMenuSelect(UINT wID) {
+    IME_COM_GUARD_BEGIN
     textService_->onCommand(wID, TextService::COMMAND_MENU);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::GetIcon(HICON *phIcon) {
+    IME_COM_GUARD_BEGIN
     // https://msdn.microsoft.com/zh-tw/library/windows/desktop/ms628718%28v=vs.85%29.aspx
     // The caller will delete the icon when it's no longer needed.
     // However, we might still need it. So let's return a copy here.
     *phIcon = (HICON)CopyImage(icon_, IMAGE_ICON, 0, 0, 0);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::GetText(BSTR *pbstrText) {
+    IME_COM_GUARD_BEGIN
     *pbstrText = ::SysAllocString(info_.szDescription);
     return *pbstrText ? S_OK : S_FALSE;
+    IME_COM_GUARD_END
 }
 
 // ITfSource
 STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown *punk, DWORD *pdwCookie) {
+    IME_COM_GUARD_BEGIN
     if(IsEqualIID(riid, IID_ITfLangBarItemSink)) {
         if(auto langBarItemSink = ComPtr<ITfLangBarItemSink>::queryFrom(punk)) {
             *pdwCookie = nextCookie++;
@@ -255,9 +273,11 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown *punk, DWORD *pdwCo
         }
     }
     return CONNECT_E_CANNOTCONNECT;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
+    IME_COM_GUARD_BEGIN
     auto it = std::remove_if(sinks_.begin(), sinks_.end(),
         [=](const auto& item) {
             return item.first == dwCookie;
@@ -268,6 +288,7 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
         return S_OK;
     }
     return CONNECT_E_NOCONNECTION;
+    IME_COM_GUARD_END
 }
 
 

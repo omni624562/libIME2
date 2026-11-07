@@ -18,6 +18,7 @@
 //
 
 #include "DisplayAttributeInfoEnum.h"
+#include "ComGuard.h"
 #include "DisplayAttributeProvider.h"
 #include "ImeModule.h"
 #include <assert.h>
@@ -35,11 +36,14 @@ DisplayAttributeInfoEnum::~DisplayAttributeInfoEnum(void) {
 
 // IEnumTfDisplayAttributeInfo
 STDMETHODIMP DisplayAttributeInfoEnum::Clone(IEnumTfDisplayAttributeInfo **ppEnum) {
+    IME_COM_GUARD_BEGIN
     *ppEnum = static_cast<IEnumTfDisplayAttributeInfo*>(new DisplayAttributeInfoEnum(*this));
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfoEnum::Next(ULONG ulCount, ITfDisplayAttributeInfo **rgInfo, ULONG *pcFetched) {
+    IME_COM_GUARD_BEGIN
     ULONG n = 0;
     if (rgInfo != nullptr) {
         auto& displayAttrInfos = provider_->imeModule_->displayAttrInfos();
@@ -53,15 +57,19 @@ STDMETHODIMP DisplayAttributeInfoEnum::Next(ULONG ulCount, ITfDisplayAttributeIn
         *pcFetched = n;
     }
     return n < ulCount ? S_FALSE : S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfoEnum::Reset() {
+    IME_COM_GUARD_BEGIN
     auto& displayAttrInfos = provider_->imeModule_->displayAttrInfos();
     iterator_ = displayAttrInfos.begin();
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfoEnum::Skip(ULONG ulCount) {
+    IME_COM_GUARD_BEGIN
     auto& displayAttrInfos = provider_->imeModule_->displayAttrInfos();
     ULONG n = 0;
     while (n < ulCount && iterator_ != displayAttrInfos.end()) {
@@ -69,6 +77,7 @@ STDMETHODIMP DisplayAttributeInfoEnum::Skip(ULONG ulCount) {
         ++n;
     }
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 } // namespace Ime

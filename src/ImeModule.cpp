@@ -18,6 +18,7 @@
 //
 
 #include "ImeModule.h"
+#include "ComGuard.h"
 #include <string>
 #include <algorithm>
 #include <memory>
@@ -474,6 +475,7 @@ STDMETHODIMP_(ULONG) ImeModule::Release(void) {
 
 // IClassFactory
 STDMETHODIMP ImeModule::CreateInstance(IUnknown *pUnkOuter, REFIID riid, void **ppvObj) {
+    IME_COM_GUARD_BEGIN
     *ppvObj = NULL;
     if(::IsEqualIID(riid, IID_ITfDisplayAttributeProvider)) {
         auto provider = ComPtr<DisplayAttributeProvider>::make(this);
@@ -493,9 +495,11 @@ STDMETHODIMP ImeModule::CreateInstance(IUnknown *pUnkOuter, REFIID riid, void **
         }
     }
     return *ppvObj ? S_OK : E_NOINTERFACE;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP ImeModule::LockServer(BOOL fLock) {
+    IME_COM_GUARD_BEGIN
     if (fLock) {
         AddRef();
     }
@@ -503,17 +507,22 @@ STDMETHODIMP ImeModule::LockServer(BOOL fLock) {
         Release();
     }
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 // ITfFnConfigure
 STDMETHODIMP ImeModule::Show(HWND hwndParent, LANGID langid, REFGUID rguidProfile) {
+    IME_COM_GUARD_BEGIN
     return onConfigure(hwndParent, langid, rguidProfile) ? S_OK : E_FAIL;
+    IME_COM_GUARD_END
 }
 
 // ITfFunction
 STDMETHODIMP ImeModule::GetDisplayName(BSTR *pbstrName) {
+    IME_COM_GUARD_BEGIN
     *pbstrName = ::SysAllocString(L"Configuration");
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 } // namespace Ime

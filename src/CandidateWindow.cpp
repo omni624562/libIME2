@@ -18,6 +18,7 @@
 //
 
 #include "CandidateWindow.h"
+#include "ComGuard.h"
 #include "TextService.h"
 #include "EditSession.h"
 
@@ -458,21 +459,26 @@ bool CandidateWindow::accessibleItemRect(int index, RECT* screenRect) {
 
 // ITfUIElement
 STDMETHODIMP CandidateWindow::GetDescription(BSTR *pbstrDescription) {
+    IME_COM_GUARD_BEGIN
     if (!pbstrDescription)
         return E_INVALIDARG;
     *pbstrDescription = SysAllocString(L"Candidate window");
     return *pbstrDescription ? S_OK : E_OUTOFMEMORY;
+    IME_COM_GUARD_END
 }
 
 // {BD7CCC94-57CD-41D3-A789-AF47890CEB29}
 STDMETHODIMP CandidateWindow::GetGUID(GUID *pguid) {
+    IME_COM_GUARD_BEGIN
     if (!pguid)
         return E_INVALIDARG;
     *pguid = { 0xbd7ccc94, 0x57cd, 0x41d3, { 0xa7, 0x89, 0xaf, 0x47, 0x89, 0xc, 0xeb, 0x29 } };
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::Show(BOOL bShow) {
+    IME_COM_GUARD_BEGIN
     shown_ = bShow;
     if (shown_)
         show();
@@ -485,17 +491,21 @@ STDMETHODIMP CandidateWindow::Show(BOOL bShow) {
         ::NotifyWinEvent(shown_ ? EVENT_OBJECT_IME_SHOW : EVENT_OBJECT_IME_HIDE, hwnd_, OBJID_CLIENT, CHILDID_SELF);
     syncAccessibility();
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::IsShown(BOOL *pbShow) {
+    IME_COM_GUARD_BEGIN
     if (!pbShow)
         return E_INVALIDARG;
     *pbShow = shown_;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 // ITfCandidateListUIElement
 STDMETHODIMP CandidateWindow::GetUpdatedFlags(DWORD *pdwFlags) {
+    IME_COM_GUARD_BEGIN
     if (!pdwFlags)
         return E_INVALIDARG;
     // what changed since the last UpdateUIElement (all bits the first time,
@@ -503,26 +513,32 @@ STDMETHODIMP CandidateWindow::GetUpdatedFlags(DWORD *pdwFlags) {
     // UpdateUIElement with resetUpdatedFlags()
     *pdwFlags = updatedFlags_;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::GetDocumentMgr(ITfDocumentMgr **ppdim) {
+    IME_COM_GUARD_BEGIN
     if (!textService_)
         return E_FAIL;
     auto context = textService_->currentContext();
     if (!context)
         return E_FAIL;
     return context->GetDocumentMgr(ppdim);
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::GetCount(UINT *puCount) {
+    IME_COM_GUARD_BEGIN
     if (!puCount)
         return E_INVALIDARG;
     // the window holds exactly the current page of the backend's list
     *puCount = static_cast<UINT>(items_.size());
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::GetSelection(UINT *puIndex) {
+    IME_COM_GUARD_BEGIN
     if (!puIndex)
         return E_INVALIDARG;
     *puIndex = 0;
@@ -531,18 +547,22 @@ STDMETHODIMP CandidateWindow::GetSelection(UINT *puIndex) {
         return S_FALSE;
     *puIndex = static_cast<UINT>(currentSel_);
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::GetString(UINT uIndex, BSTR *pbstr) {
+    IME_COM_GUARD_BEGIN
     if (!pbstr)
         return E_INVALIDARG;
     if (uIndex >= items_.size())
         return E_INVALIDARG;
     *pbstr = SysAllocStringLen(items_[uIndex].c_str(), static_cast<UINT>(items_[uIndex].length()));
     return *pbstr ? S_OK : E_OUTOFMEMORY;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::GetPageIndex(UINT *puIndex, UINT uSize, UINT *puPageCnt) {
+    IME_COM_GUARD_BEGIN
     /// XXX Always return the same single page index.
     if (!puPageCnt)
         return E_INVALIDARG;
@@ -554,21 +574,26 @@ STDMETHODIMP CandidateWindow::GetPageIndex(UINT *puIndex, UINT uSize, UINT *puPa
         puIndex[0] = 0;
     }
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::SetPageIndex(UINT *puIndex, UINT uPageCnt) {
+    IME_COM_GUARD_BEGIN
     // The list is a single page (the backend pages it); the only layout an
     // application can ask for is that one page starting at 0.
     if (!puIndex || uPageCnt != 1 || puIndex[0] != 0)
         return E_INVALIDARG;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP CandidateWindow::GetCurrentPage(UINT *puPage) {
+    IME_COM_GUARD_BEGIN
     if (!puPage)
         return E_INVALIDARG;
     *puPage = 0;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 LRESULT CandidateWindow::wndProc(UINT msg, WPARAM wp , LPARAM lp) {
