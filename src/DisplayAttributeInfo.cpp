@@ -18,6 +18,7 @@
 //
 
 #include "DisplayAttributeInfo.h"
+#include "ComGuard.h"
 #include <assert.h>
 
 namespace Ime {
@@ -36,26 +37,35 @@ DisplayAttributeInfo::~DisplayAttributeInfo(void) {
 
 // ITfDisplayAttributeInfo
 STDMETHODIMP DisplayAttributeInfo::GetGUID(GUID *pguid) {
+    IME_COM_GUARD_BEGIN
     *pguid = guid_;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfo::GetDescription(BSTR *pbstrDesc) {
+    IME_COM_GUARD_BEGIN
     *pbstrDesc = ::SysAllocString(desc_.c_str());
     return *pbstrDesc ? S_OK : E_FAIL;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfo::GetAttributeInfo(TF_DISPLAYATTRIBUTE *ptfDisplayAttr) {
+    IME_COM_GUARD_BEGIN
     *ptfDisplayAttr = attrib_;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfo::SetAttributeInfo(const TF_DISPLAYATTRIBUTE *ptfDisplayAttr) {
+    IME_COM_GUARD_BEGIN
     attrib_ = *ptfDisplayAttr;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 STDMETHODIMP DisplayAttributeInfo::Reset() {
+    IME_COM_GUARD_BEGIN
     attrib_.bAttr = TF_ATTR_INPUT;
     attrib_.crBk.type = TF_CT_NONE;
     attrib_.crLine.type = TF_CT_NONE;
@@ -63,6 +73,7 @@ STDMETHODIMP DisplayAttributeInfo::Reset() {
     attrib_.fBoldLine = FALSE;
     attrib_.lsStyle = TF_LS_NONE;
     return S_OK;
+    IME_COM_GUARD_END
 }
 
 } // namespace Ime
